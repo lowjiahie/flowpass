@@ -204,6 +204,85 @@ tenant_member：Alice 在 Company A 的员工编号、部门、职位和业务�
 
 业务投影不保存密码、MFA Secret、Refresh Token 或 Keycloak Credential。
 
+### 4.5 密码与 Credential 存储模式
+
+密码存在哪里取决于 User 的身份来源。Approval、Marketing、Permission Service 和 Tenant Management 都不保存用户密码。
+
+#### Keycloak 本地用户
+
+如果用户不是企业 IdP、LDAP 或 Active Directory 用户，密码由 Keycloak 管理：
+
+```text
+User
+→ Keycloak Login Page
+→ Keycloak Password Validation
+→ Keycloak Database
+```
+
+Keycloak Database 保存的是 Credential 记录，而不是明文密码：
+
+```text
+Password Hash
+Salt
+Hash Algorithm
+Algorithm Parameters
+Credential Metadata
+```
+
+当前非 FIPS 部署默认使用 Argon2；FIPS 部署默认使用 `PBKDF2-SHA512`。密码哈希是单向的，管理员不能解密或显示原密码；忘记密码时只能执行 Reset。
+
+简化示例：
+
+```text
+algorithm: argon2id
+hash: <one-way hash>
+salt: <random salt>
+iterations: 5
+memory: 7168 KB
+parallelism: 1
+```
+
+#### LDAP / Active Directory 用户
+
+```text
+User
+→ Keycloak
+→ LDAP / Active Directory
+```
+
+密码保存在 LDAP/AD。Keycloak 可以同步或导入用户 Profile，但不会导入 LDAP 密码；登录时密码验证始终由 LDAP/AD 完成。LDAP 的 Hash、Salt 和 Password Policy 由对应目录服务负责。
+
+#### 企业 OIDC / SAML IdP 用户
+
+```text
+User
+→ Keycloak
+→ Entra ID / Okta / Customer IdP
+```
+
+密码、上游 MFA 和企业账号生命周期保存在客户 IdP。Keycloak 只保存 Broker User、Federated Identity Link、Organization Membership、Group/Role Mapping 和平台 Session，不保存客户 IdP 密码。
+
+#### 存储位置总结
+
+| 用户类型 | 密码存储/验证位置 | Keycloak 保存 |
+|---|---|---|
+| Keycloak 本地用户 | Keycloak DB 中的加盐 Password Hash | User、Credential、MFA、Membership |
+| LDAP/AD 用户 | 客户 LDAP/AD | User/Profile 映射及 Keycloak 扩展数据；不导入密码 |
+| OIDC/SAML 企业 IdP 用户 | Entra ID、Okta 或客户 IdP | Broker User、Federated Identity Link、Membership |
+
+#### Keycloak Database 安全要求
+
+Keycloak DB 除了 Password Hash，还可能包含 Client Credential、Realm Signing Key、Session 和 MFA Credential，因此仍属于高敏感数据：
+
+- 使用独立 Keycloak Database 和最小权限数据库账号。
+- 不允许 Approval、Marketing、Permission Service 直接连接。
+- 启用数据库静态加密/TDE 和加密备份。
+- 数据库密码存 Vault/Secret Manager，不写入 Git 或普通配置文件。
+- 限制网络访问，启用审计，并定期进行恢复演练。
+- 日志不得记录密码、Password Hash、Token、Client Secret 或 Realm Key。
+
+密码策略应在 Realm 建立初期确定；后续改变 Hash Algorithm 时，已有 Hash 通常会在用户下一次成功登录/更新密码后逐步迁移。
+
 ## 5. Organization 结构
 
 每个 Organization 包含：
@@ -828,3 +907,4 @@ Create Tenant Request
 - [Keycloak OIDC Endpoints](https://www.keycloak.org/securing-apps/oidc-layers)
 - [Keycloak Admin REST API](https://www.keycloak.org/docs-api/latest/rest-api/index.html)
 - [Keycloak Authorization Services](https://www.keycloak.org/docs/latest/authorization_services/index.html)
+- [Keycloak Database Configuration and Encryption at Rest](https://www.keycloak.org/server/db)
