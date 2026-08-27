@@ -1,0 +1,22 @@
+# Maven / build artifacts
+target/
+*.class
+*.jar
+!.mvn/wrapper/*.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+.factorypath
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+logs/
