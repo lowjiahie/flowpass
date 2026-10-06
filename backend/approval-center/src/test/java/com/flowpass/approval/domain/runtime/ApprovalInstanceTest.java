@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -31,7 +32,8 @@ class ApprovalInstanceTest {
                 "purchase_request",
                 actor,
                 new Money(new BigDecimal("23500.00"), "MYR"),
-                3);
+                3,
+                Map.of("amount", new BigDecimal("23500.00"), "currency", "MYR"));
     }
 
     @Test
@@ -43,6 +45,15 @@ class ApprovalInstanceTest {
         assertThat(instance.version()).isZero();
         assertThat(events).hasSize(1);
         assertThat(events.get(0)).isInstanceOf(ApprovalInstanceCreated.class);
+    }
+
+    @Test
+    void onlyTheInitiatorIsRecognisedAsInitiator() {
+        ApprovalInstance instance = start();
+
+        assertThat(instance.isInitiatedBy(new ApproverRef("USER", "u_1"))).isTrue();
+        assertThat(instance.isInitiatedBy(new ApproverRef("USER", "u_2"))).isFalse();
+        assertThat(instance.isInitiatedBy(new ApproverRef("SYSTEM", "u_1"))).isFalse();
     }
 
     @Test

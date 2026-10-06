@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { App as AntApp, Button, Card, Form, Input, Typography } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
-import { login } from '@/api/auth'
+import { login, isMock } from '@/api/auth'
 import { useAuthStore } from '@/store/auth'
 
 export default function Login() {
@@ -11,7 +11,9 @@ export default function Login() {
   const setAuth = useAuthStore((s) => s.setAuth)
   const [loading, setLoading] = useState(false)
 
-  const onFinish = async (values: { username: string; password: string }) => {
+  // SSO 模式下登录由应用启动时的 main.tsx 初始化流程接管（login-required 会自动跳转），
+  // 这里只在 Keycloak 初始化失败时作为手动入口。
+  const onMockFinish = async (values: { username: string; password: string }) => {
     setLoading(true)
     try {
       const res = await login(values.username, values.password)
@@ -23,6 +25,46 @@ export default function Login() {
     } finally {
       setLoading(false)
     }
+  }
+
+  if (!isMock()) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          minHeight: '100vh',
+          background: '#f0f2f5',
+        }}
+      >
+        <Card style={{ width: 380, textAlign: 'center' }}>
+          <Typography.Title level={3} style={{ textAlign: 'center', marginBottom: 8 }}>
+            Flowpass
+          </Typography.Title>
+          <Typography.Paragraph type="secondary" style={{ textAlign: 'center' }}>
+            Sign in with the platform SSO
+          </Typography.Paragraph>
+          <Button
+            type="primary"
+            block
+            loading={loading}
+            onClick={async () => {
+              setLoading(true)
+              await login().catch(() => undefined)
+            }}
+          >
+            Sign in with Keycloak
+          </Button>
+          <Typography.Paragraph
+            type="secondary"
+            style={{ textAlign: 'center', marginTop: 16, fontSize: 12 }}
+          >
+            SSO demo user: demo / demo
+          </Typography.Paragraph>
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -42,7 +84,7 @@ export default function Login() {
         <Typography.Paragraph type="secondary" style={{ textAlign: 'center' }}>
           Sign in to the Approval Admin
         </Typography.Paragraph>
-        <Form onFinish={onFinish} layout="vertical">
+        <Form onFinish={onMockFinish} layout="vertical">
           <Form.Item
             name="username"
             rules={[{ required: true, message: 'Please input username' }]}

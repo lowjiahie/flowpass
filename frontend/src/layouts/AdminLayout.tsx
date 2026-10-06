@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   App as AntApp,
@@ -17,6 +17,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons'
 import { useAuthStore } from '@/store/auth'
+import { getMe, isMock, logout as ssoLogout } from '@/api/auth'
 
 const { Sider, Header, Content } = Layout
 
@@ -33,7 +34,18 @@ export default function AdminLayout() {
   const location = useLocation()
   const permissions = useAuthStore((s) => s.permissions)
   const user = useAuthStore((s) => s.user)
+  const token = useAuthStore((s) => s.token)
   const logout = useAuthStore((s) => s.logout)
+  const setAuth = useAuthStore((s) => s.setAuth)
+
+  // 刷新后 token 仍在但 user/permissions 丢失，这里补一次 hydration。
+  useEffect(() => {
+    if (token && !user) {
+      getMe()
+        .then((res) => setAuth(res.token, res.user, res.permissions))
+        .catch(() => undefined)
+    }
+  }, [token, user, setAuth])
 
   // 菜单按权限过滤（骨架阶段简单映射；后端就绪后可换成动态菜单）。
   const allItems: MenuEntry[] = [
@@ -50,10 +62,15 @@ export default function AdminLayout() {
     [permissions],
   )
 
-  const onLogout = () => {
+  const onLogout = async () => {
     logout()
     message.success('Signed out')
-    navigate('/login')
+    if (isMock()) {
+      navigate('/login')
+    } else {
+      // SSO 模式：走 Keycloak OIDC logout（清理 SSO 会话后回调首页）。
+      await ssoLogout().catch(() => navigate('/login'))
+    }
   }
 
   return (

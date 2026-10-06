@@ -6,19 +6,34 @@ spring:
     username: flowpass
     password: flowpass
     driver-class-name: org.postgresql.Driver
+    hikari:
+      # The Flowable async-job acquire threads keep running after the engine shuts down (non-daemon),
+      # and when the DB is unreachable they block on getConnection() for connection-timeout. Keep it
+      # short so those leftover threads fail fast instead of stalling the JVM for 30s on exit.
+      connection-timeout: 3000
   flyway:
     enabled: true
     locations: classpath:db/migration
   jackson:
     default-property-inclusion: non_null
     time-zone: UTC
+  # Flowable process engine: let it create its own ACT_* tables on the same schema.
+  flowable:
+    database-schema-update: true
+
+# Flowable async job executor — off. Our start/complete is synchronous (see FlowableEngineConfig), and this
+# avoids background job-acquisition threads that linger (and fail) when Testcontainers stops. The key is
+# `flowable.async-executor-activate` (the former `flowable.process.async-executor-activate` was ignored).
+# Turn it on when timer / async features (timeouts, escalation) arrive.
+flowable:
+  async-executor-activate: false
 
 mybatis:
   configuration:
     map-underscore-to-camel-case: true
 
 server:
-  port: 8080
+  port: 9000
 
 management:
   endpoints:
@@ -31,3 +46,19 @@ springdoc:
     path: /v3/api-docs
   swagger-ui:
     path: /swagger-ui.html
+
+# Outbox + webhook delivery pollers. Off by default so no background @Scheduled threads start during
+# the Testcontainers lifecycle or block the JVM from exiting. Enable by setting scheduler-enabled=true
+# in the runtime profile; the values below document the tunables pulled in by @Value defaults.
+flowpass:
+  outbox:
+    scheduler-enabled: false
+    batch-size: 50
+    poll-interval-ms: 5000
+    initial-delay-ms: 1000
+  webhook:
+    batch-size: 50
+    poll-interval-ms: 5000
+    initial-delay-ms: 1000
+    max-attempts: 3
+    retry-delay-ms: 30000

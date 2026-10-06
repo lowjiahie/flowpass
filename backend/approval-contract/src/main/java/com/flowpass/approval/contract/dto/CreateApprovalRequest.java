@@ -15,16 +15,17 @@ import java.util.Map;
  *
  * @param templateKey       published template key to run against (required)
  * @param externalBusinessKey unique business reference from the caller, idempotency anchor (required)
- * @param initiatorType     {@code USER} or {@code SYSTEM} (required)
- * @param initiatorId       caller-supplied actor id (required)
+ * @param initiatorType     optional; with {@code initiatorId}, the principal to start on behalf of.
+ *                          Honoured only for a {@code SYSTEM} caller — a user always starts as themselves
+ * @param initiatorId       see {@code initiatorType}
  * @param variables         form / rule variables snapshot
  * @param callbackContext   opaque context echoed back on webhook callbacks
  */
 public record CreateApprovalRequest(
         @NotBlank @Size(max = 64) String templateKey,
         @NotBlank @Size(max = 128) String externalBusinessKey,
-        @NotBlank String initiatorType,
-        @NotBlank String initiatorId,
+        String initiatorType,
+        String initiatorId,
         @NotNull Map<String, Object> variables,
         Map<String, Object> callbackContext) implements Serializable {
 

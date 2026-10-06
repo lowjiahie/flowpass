@@ -16,5 +16,19 @@ services:
       timeout: 5s
       retries: 10
 
+  # Local SSO identity provider. Realm + client are imported from keycloak/saas-platform-realm.json
+  # on first boot (start-dev --import-realm). Admin console: http://localhost:8080 (admin/admin).
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2.3
+    container_name: flowpass-keycloak
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    command: ["start-dev", "--import-realm"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./keycloak/saas-platform-realm.json:/opt/keycloak/data/import/saas-platform-realm.json:ro
+
 volumes:
   flowpass_pgdata:

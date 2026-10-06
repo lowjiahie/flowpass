@@ -21,6 +21,7 @@ public class ApprovalInstanceRow {
     private Integer definitionVersion;
     private String status;
     private Long version;
+    private String variablesJson;
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -46,4 +47,6 @@ public class ApprovalInstanceRow {
     public void setStatus(String status) { this.status = status; }
     public Long getVersion() { return version; }
     public void setVersion(Long version) { this.version = version; }
+    public String getVariablesJson() { return variablesJson; }
+    public void setVariablesJson(String variablesJson) { this.variablesJson = variablesJson; }
 }

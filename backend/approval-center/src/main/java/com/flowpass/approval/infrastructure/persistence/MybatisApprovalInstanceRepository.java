@@ -1,5 +1,8 @@
 package com.flowpass.approval.infrastructure.persistence;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flowpass.approval.application.common.BusinessErrorCode;
 import com.flowpass.approval.application.common.BusinessException;
 import com.flowpass.approval.domain.common.ApproverRef;
@@ -9,8 +12,11 @@ import com.flowpass.approval.domain.runtime.ApprovalId;
 import com.flowpass.approval.domain.runtime.ApprovalInstance;
 import com.flowpass.approval.domain.runtime.ApprovalInstanceRepository;
 import com.flowpass.approval.domain.runtime.ApprovalStatus;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -24,9 +30,11 @@ import java.util.Optional;
 public class MybatisApprovalInstanceRepository implements ApprovalInstanceRepository {
 
     private final ApprovalInstanceMapper mapper;
+    private final ObjectMapper objectMapper;
 
-    public MybatisApprovalInstanceRepository(ApprovalInstanceMapper mapper) {
+    public MybatisApprovalInstanceRepository(ApprovalInstanceMapper mapper, ObjectMapper objectMapper) {
         this.mapper = mapper;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -36,10 +44,23 @@ public class MybatisApprovalInstanceRepository implements ApprovalInstanceReposi
     }
 
     @Override
+    public List<ApprovalInstance> findPage(TenantId tenantId, String status, String cursorId, int limit) {
+        return mapper.findPage(tenantId.value(), status, cursorId, limit).stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    @Override
     public void save(ApprovalInstance instance) {
         ApprovalInstanceRow row = toRow(instance);
         if (instance.version() == 0L) {
-            mapper.insert(row);
+            try {
+                mapper.insert(row);
+            } catch (DuplicateKeyException e) {
+                // (tenant, application, business key) is unique: a second start for the same business object.
+                throw new BusinessException(BusinessErrorCode.CONFLICT,
+                        "An approval already exists for business key " + instance.businessKey());
+            }
             return;
         }
         int updated = mapper.updateStatus(instance.id().value(), instance.status().name(), instance.version());
@@ -61,6 +82,7 @@ public class MybatisApprovalInstanceRepository implements ApprovalInstanceReposi
                 new ApproverRef(row.getInitiatorType(), row.getInitiatorId()),
                 money,
                 row.getDefinitionVersion(),
+                fromJson(row.getVariablesJson()),
                 ApprovalStatus.valueOf(row.getStatus()),
                 row.getVersion());
     }
@@ -79,6 +101,26 @@ public class MybatisApprovalInstanceRepository implements ApprovalInstanceReposi
         row.setDefinitionVersion(instance.definitionVersion());
         row.setStatus(instance.status().name());
         row.setVersion(instance.version());
+        row.setVariablesJson(toJson(instance.variables()));
         return row;
+    }
+
+    private Map<String, Object> fromJson(String json) {
+        if (json == null || json.isBlank()) {
+            return Map.of();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to deserialize instance variables snapshot", e);
+        }
+    }
+
+    private String toJson(Map<String, Object> variables) {
+        try {
+            return objectMapper.writeValueAsString(variables);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to serialize instance variables snapshot", e);
+        }
     }
 }

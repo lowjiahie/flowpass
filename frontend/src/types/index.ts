@@ -17,7 +17,8 @@ export interface ApprovalInstance {
   businessKey: string
   templateKey: string
   status: ApprovalStatus
-  initiator: string
+  initiatorType: string
+  initiatorId: string
   amount?: number
   currency?: string
   createdAt: string
@@ -28,7 +29,28 @@ export interface ApprovalTask {
   id: string
   instanceId: string
   name: string
-  assignee: string
+  assigneeType: string
+  assigneeId: string
   status: string
-  createdAt: string
+  version: number
+}
+
+export interface CreateApprovalRequest {
+  templateKey: string
+  externalBusinessKey: string
+  /** Optional "start on behalf of" — honoured by the server only for SYSTEM callers. */
+  initiatorType?: string
+  initiatorId?: string
+  variables: Record<string, unknown>
+  callbackContext?: Record<string, unknown>
+}
+
+/** The acting user is taken from the access token server-side; only an optional comment is sent. */
+export interface TaskActionRequest {
+  comment?: string
+}
+
+export interface Approver {
+  type: string
+  id: string
 }

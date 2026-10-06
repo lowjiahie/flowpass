@@ -6,12 +6,15 @@ import com.flowpass.approval.domain.common.TenantId;
 import com.flowpass.approval.domain.event.ApprovalInstanceApproved;
 import com.flowpass.approval.domain.event.ApprovalInstanceCreated;
 import com.flowpass.approval.domain.event.ApprovalInstanceRejected;
+import com.flowpass.approval.domain.event.ApprovalInstanceWithdrawn;
 import com.flowpass.approval.domain.event.DomainEvent;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * Aggregate root for an approval run — the single owner of its state changes.
@@ -30,6 +33,7 @@ public class ApprovalInstance {
     private final ApproverRef initiator;
     private final Money money;
     private final Integer definitionVersion;
+    private final Map<String, Object> variables;
 
     private ApprovalStatus status;
     private long version;
@@ -44,6 +48,7 @@ public class ApprovalInstance {
         this.initiator = b.initiator;
         this.money = b.money;
         this.definitionVersion = b.definitionVersion;
+        this.variables = b.variables;
         this.status = b.status;
         this.version = b.version;
         this.events = new ArrayList<>();
@@ -57,9 +62,10 @@ public class ApprovalInstance {
             String templateKey,
             ApproverRef initiator,
             Money money,
-            Integer definitionVersion) {
+            Integer definitionVersion,
+            Map<String, Object> variables) {
         ApprovalInstance instance = new Builder()
-                .id(new ApprovalId("appr_" + businessKey))
+                .id(new ApprovalId("appr_" + UUID.randomUUID()))
                 .tenantId(tenantId)
                 .applicationId(applicationId)
                 .businessKey(businessKey)
@@ -67,6 +73,7 @@ public class ApprovalInstance {
                 .initiator(initiator)
                 .money(money)
                 .definitionVersion(definitionVersion)
+                .variables(variables)
                 .status(ApprovalStatus.RUNNING)
                 .version(0L)
                 .build();
@@ -84,6 +91,7 @@ public class ApprovalInstance {
             ApproverRef initiator,
             Money money,
             Integer definitionVersion,
+            Map<String, Object> variables,
             ApprovalStatus status,
             long version) {
         return new Builder()
@@ -95,6 +103,7 @@ public class ApprovalInstance {
                 .initiator(initiator)
                 .money(money)
                 .definitionVersion(definitionVersion)
+                .variables(variables)
                 .status(status)
                 .version(version)
                 .build();
@@ -106,6 +115,15 @@ public class ApprovalInstance {
 
     public void reject(ApproverRef actor) {
         transitionTo(ApprovalStatus.REJECTED, new ApprovalInstanceRejected(id.value(), tenantId.value(), actor.id(), Instant.now()));
+    }
+
+    public void withdraw(ApproverRef actor) {
+        transitionTo(ApprovalStatus.WITHDRAWN, new ApprovalInstanceWithdrawn(id.value(), tenantId.value(), actor.id(), Instant.now()));
+    }
+
+    /** True when {@code actor} is the principal that started this instance (only they may withdraw it). */
+    public boolean isInitiatedBy(ApproverRef actor) {
+        return initiator.equals(actor);
     }
 
     private void transitionTo(ApprovalStatus next, DomainEvent event) {
@@ -163,6 +181,10 @@ public class ApprovalInstance {
         return definitionVersion;
     }
 
+    public Map<String, Object> variables() {
+        return variables;
+    }
+
     public ApprovalStatus status() {
         return status;
     }
@@ -180,6 +202,7 @@ public class ApprovalInstance {
         private ApproverRef initiator;
         private Money money;
         private Integer definitionVersion;
+        private Map<String, Object> variables;
         private ApprovalStatus status;
         private long version;
 
@@ -191,6 +214,7 @@ public class ApprovalInstance {
         Builder initiator(ApproverRef initiator) { this.initiator = initiator; return this; }
         Builder money(Money money) { this.money = money; return this; }
         Builder definitionVersion(Integer definitionVersion) { this.definitionVersion = definitionVersion; return this; }
+        Builder variables(Map<String, Object> variables) { this.variables = variables; return this; }
         Builder status(ApprovalStatus status) { this.status = status; return this; }
         Builder version(long version) { this.version = version; return this; }
 

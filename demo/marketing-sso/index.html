@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Marketing · SSO demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #f0f2f5; margin: 0; display: flex;
+           justify-content: center; align-items: center; min-height: 100vh; }
+    .card { background: #fff; border-radius: 8px; padding: 32px; width: 420px; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+    h1 { font-size: 18px; margin: 0 0 8px; }
+    .ok { color: #16a34a; font-weight: 600; }
+    .muted { color: #888; font-size: 13px; margin-top: 12px; }
+    code { background: #f5f5f5; padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Marketing App</h1>
+    <div id="status">Connecting to SSO…</div>
+    <div class="muted">Second OIDC client (<code>marketing-web</code>) on the same <code>saas-platform</code> realm.</div>
+  </div>
+
+  <script>
+    const KEYCLOAK = 'http://localhost:8080/realms/saas-platform/protocol/openid-connect'
+    const CLIENT_ID = 'marketing-web'
+    const REDIRECT = 'http://localhost:5174/'
+    const statusEl = document.getElementById('status')
+
+    function b64url(bytes) {
+      let s = ''
+      bytes.forEach((b) => (s += String.fromCharCode(b)))
+      return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    }
+
+    async function makeChallenge() {
+      const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)))
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
+      return { verifier, challenge: b64url(new Uint8Array(digest)) }
+    }
+
+    function decodeIdToken(idToken) {
+      const payload = idToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+      return JSON.parse(atob(payload.padEnd(Math.ceil(payload.length / 4) * 4, '=')))
+    }
+
+    async function main() {
+      const params = new URLSearchParams(window.location.search)
+      const code = params.get('code')
+      const state = params.get('state')
+
+      if (code) {
+        // Step 2: exchange the authorization code for tokens.
+        const verifier = sessionStorage.getItem('pkce_verifier')
+        const savedState = sessionStorage.getItem('pkce_state')
+        if (state !== savedState) {
+          statusEl.innerHTML = '<span style="color:#dc2626">State mismatch — possible CSRF.</span>'
+          return
+        }
+        const body = new URLSearchParams({
+          grant_type: 'authorization_code',
+          client_id: CLIENT_ID,
+          code,
+          redirect_uri: REDIRECT,
+          code_verifier: verifier,
+        })
+        const res = await fetch(`${KEYCLOAK}/token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        })
+        if (!res.ok) {
+          statusEl.innerHTML = `<span style="color:#dc2626">Token exchange failed (${res.status}).</span>`
+          return
+        }
+        const data = await res.json()
+        const claims = decodeIdToken(data.id_token)
+        statusEl.innerHTML =
+          `<div class="ok">Signed in as ${claims.preferred_username ?? claims.sub}</div>` +
+          `<div class="muted">You were <b>not</b> asked for a password — Keycloak reused the existing ` +
+          `realm SSO session from the approval app.</div>`
+        window.history.replaceState({}, '', REDIRECT)
+        return
+      }
+
+      // Step 1: no code yet — start Authorization Code + PKCE.
+      const { verifier, challenge } = await makeChallenge()
+      const newState = crypto.randomUUID()
+      sessionStorage.setItem('pkce_verifier', verifier)
+      sessionStorage.setItem('pkce_state', newState)
+      const authUrl =
+        `${KEYCLOAK}/auth?` +
+        new URLSearchParams({
+          client_id: CLIENT_ID,
+          response_type: 'code',
+          redirect_uri: REDIRECT,
+          scope: 'openid',
+          state: newState,
+          code_challenge: challenge,
+          code_challenge_method: 'S256',
+        })
+      window.location.assign(authUrl)
+    }
+
+    main().catch((e) => {
+      statusEl.innerHTML = `<span style="color:#dc2626">Error: ${e.message}</span>`
+    })
+  </script>
+</body>
+</html>

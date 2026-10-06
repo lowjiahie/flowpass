@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:flowable="http://flowable.org/bpmn"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+             xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+             targetNamespace="http://flowpass.com/approval"
+             id="Definitions_purchase_request">
+
+  <!--
+    Process variables set by the engine adapter at start (see FlowableWorkflowEngineAdapter):
+      approvers     list of "TYPE:id" strings — the resolved first-round approvers
+      hasApprovers  false when the decision matrix resolved nobody
+      rejected      false at start; set to true when an approver rejects
+    End events carry the outcome: the adapter reads which end event the run reached
+    (endApproved / endRejected), so the application never infers it. A withdrawal is not modelled:
+    the adapter deletes the run, which is the platform's WITHDRAWN state.
+  -->
+  <process id="purchase_request" name="Purchase Request Approval" isExecutable="true">
+    <startEvent id="start" name="Start"/>
+    <sequenceFlow id="flow_start_to_gateway" sourceRef="start" targetRef="hasApproversGateway"/>
+
+    <exclusiveGateway id="hasApproversGateway" name="Approvers resolved?" default="flow_to_manual"/>
+    <sequenceFlow id="flow_to_approve" sourceRef="hasApproversGateway" targetRef="approveTask">
+      <conditionExpression xsi:type="tFormalExpression">${hasApprovers}</conditionExpression>
+    </sequenceFlow>
+    <!-- Nobody resolved: park on an unassigned task for manual handling. Never auto-approve. -->
+    <sequenceFlow id="flow_to_manual" sourceRef="hasApproversGateway" targetRef="manualReview"/>
+    <userTask id="manualReview" name="Manual review (no approver resolved)"/>
+    <sequenceFlow id="flow_manual_to_approved" sourceRef="manualReview" targetRef="endApproved"/>
+
+    <!-- One engine task per approver. Done when everyone approved, or as soon as anyone rejects
+         (the remaining tasks are then removed by the engine). -->
+    <userTask id="approveTask" name="Approve (first round)" flowable:assignee="${approver}">
+      <multiInstanceLoopCharacteristics isSequential="false"
+                                        flowable:collection="approvers"
+                                        flowable:elementVariable="approver">
+        <completionCondition>${rejected || nrOfCompletedInstances == nrOfInstances}</completionCondition>
+      </multiInstanceLoopCharacteristics>
+    </userTask>
+    <sequenceFlow id="flow_approve_to_decision" sourceRef="approveTask" targetRef="decisionGateway"/>
+
+    <exclusiveGateway id="decisionGateway" name="Rejected?" default="flow_to_approved"/>
+    <sequenceFlow id="flow_to_rejected" sourceRef="decisionGateway" targetRef="endRejected">
+      <conditionExpression xsi:type="tFormalExpression">${rejected}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flow_to_approved" sourceRef="decisionGateway" targetRef="endApproved"/>
+
+    <endEvent id="endApproved" name="Approved"/>
+    <endEvent id="endRejected" name="Rejected"/>
+  </process>
+
+  <bpmndi:BPMNDiagram id="Diagram_purchase_request">
+    <bpmndi:BPMNPlane id="Plane_purchase_request" bpmnElement="purchase_request">
+      <bpmndi:BPMNShape id="Shape_start" bpmnElement="start">
+        <dc:Bounds x="100" y="140" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_hasApproversGateway" bpmnElement="hasApproversGateway" isMarkerVisible="true">
+        <dc:Bounds x="190" y="133" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_approveTask" bpmnElement="approveTask">
+        <dc:Bounds x="300" y="118" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_manualReview" bpmnElement="manualReview">
+        <dc:Bounds x="300" y="260" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_decisionGateway" bpmnElement="decisionGateway" isMarkerVisible="true">
+        <dc:Bounds x="460" y="133" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_endApproved" bpmnElement="endApproved">
+        <dc:Bounds x="570" y="140" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_endRejected" bpmnElement="endRejected">
+        <dc:Bounds x="570" y="40" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_start" bpmnElement="flow_start_to_gateway">
+        <di:waypoint x="136" y="158"/>
+        <di:waypoint x="190" y="158"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_to_approve" bpmnElement="flow_to_approve">
+        <di:waypoint x="240" y="158"/>
+        <di:waypoint x="300" y="158"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_to_manual" bpmnElement="flow_to_manual">
+        <di:waypoint x="215" y="183"/>
+        <di:waypoint x="215" y="300"/>
+        <di:waypoint x="300" y="300"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_manual_to_approved" bpmnElement="flow_manual_to_approved">
+        <di:waypoint x="400" y="300"/>
+        <di:waypoint x="588" y="300"/>
+        <di:waypoint x="588" y="176"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_approve_to_decision" bpmnElement="flow_approve_to_decision">
+        <di:waypoint x="400" y="158"/>
+        <di:waypoint x="460" y="158"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_to_rejected" bpmnElement="flow_to_rejected">
+        <di:waypoint x="485" y="133"/>
+        <di:waypoint x="485" y="58"/>
+        <di:waypoint x="570" y="58"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_to_approved" bpmnElement="flow_to_approved">
+        <di:waypoint x="510" y="158"/>
+        <di:waypoint x="570" y="158"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</definitions>

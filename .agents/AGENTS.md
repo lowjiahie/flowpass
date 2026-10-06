@@ -62,6 +62,7 @@ No agent may skip to implementation before completing steps 1–3.
 ## 6. Multi-Tenancy & Identity (Context Dependent)
 
 - All business tables carry a trusted `tenant_id`; repositories scope by tenant + id.
+- The request tenant is read only through `CurrentTenantPort` (request-scoped, resolved once by the inbound filter) — never re-parsed per endpoint. Off the request thread (scheduler / consumer) pass `TenantId` explicitly; no ambient tenant exists there.
 - Identity is accessed only through ports (`CurrentActorPort`, `AuthorizationPort`, `EventPublisherPort`). Until Keycloak exists, use a temporary adapter and leave a clear `TODO`.
 
 ## 7. Quality Gates (Definition of Done)
@@ -83,7 +84,7 @@ See `.agents/rules/ddd-coding-rules.md` for the full set. Highlights:
 - **Package structure** mirrors bounded context → module → aggregate.
 - **Naming**: domain events past tense (`ApprovalCompleted`), commands verbs (`ApproveRequestCommand`), state enums distinct from display text.
 - **Time**: store in UTC; display per tenant timezone. **Money**: `decimal` + `currency`.
-- **API**: stable `/v1` resource naming; cursor pagination; stable business error codes, never raw exceptions/SQL.
+- **API**: stable `/v1` resource naming; cursor pagination; stable business error codes, never raw exceptions/SQL. Errors are RFC 7807 (`application/problem+json`) with the stable code in the `code` property; success responses stay bare (no global envelope).
 
 ## 9. How a Cross-Agent Should Use This Charter
 

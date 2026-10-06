@@ -5,6 +5,8 @@ import com.flowpass.approval.application.common.BusinessException;
 import com.flowpass.approval.contract.dto.ApprovalInstanceDTO;
 import com.flowpass.approval.domain.runtime.ApprovalInstance;
 import com.flowpass.approval.domain.runtime.ApprovalInstanceRepository;
+import com.flowpass.approval.application.common.Permissions;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +28,7 @@ public class GetApprovalInstanceHandler {
         this.repository = repository;
     }
 
+    @PreAuthorize("hasAuthority('" + Permissions.REQUEST_READ + "')")
     @Transactional(readOnly = true)
     public ApprovalInstanceDTO handle(GetApprovalInstanceQuery query) {
         ApprovalInstance instance = repository

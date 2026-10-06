@@ -1,0 +1,9 @@
+# Keycloak-backed runtime (activated with --spring.profiles.active=keycloak).
+# Business endpoints require a valid access token from the saas-platform realm; the request tenant
+# is derived from the token's `tenant_id` claim (see JwtTenantContextFilter), not the X-Tenant-Id header.
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8080/realms/saas-platform

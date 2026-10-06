@@ -1,59 +1,62 @@
 import http from '@/api/http'
-import type { ApprovalInstance, ApprovalTask } from '@/types'
-
-// 骨架阶段使用 mock 数据，后端 /v1 就绪后替换为真实调用。
-const USE_MOCK = true
-
-const mockInstances: ApprovalInstance[] = [
-  {
-    id: 'appr_01J5',
-    businessKey: 'PO-2026-000123',
-    templateKey: 'purchase_request',
-    status: 'RUNNING',
-    initiator: 'bob',
-    amount: 23500,
-    currency: 'MYR',
-    createdAt: '2026-08-15T06:30:00Z',
-    definitionVersion: 3,
-  },
-  {
-    id: 'appr_01J6',
-    businessKey: 'EXP-2026-000088',
-    templateKey: 'expense_claim',
-    status: 'APPROVED',
-    initiator: 'alice',
-    amount: 1200,
-    currency: 'MYR',
-    createdAt: '2026-08-16T02:10:00Z',
-    definitionVersion: 1,
-  },
-]
-
-const mockTasks: ApprovalTask[] = [
-  {
-    id: 'task_01',
-    instanceId: 'appr_01J5',
-    name: 'Finance Manager Approval',
-    assignee: 'alice',
-    status: 'PENDING',
-    createdAt: '2026-08-15T06:30:00Z',
-  },
-]
+import type {
+  ApprovalInstance,
+  ApprovalTask,
+  CreateApprovalRequest,
+  TaskActionRequest,
+} from '@/types'
 
 export async function listInstances(): Promise<ApprovalInstance[]> {
-  if (USE_MOCK) return mockInstances
   const { data } = await http.get<ApprovalInstance[]>('/v1/approval-instances')
   return data
 }
 
 export async function listTodoTasks(): Promise<ApprovalTask[]> {
-  if (USE_MOCK) return mockTasks
-  const { data } = await http.get<ApprovalTask[]>('/v1/tasks')
+  // "mine": tasks assigned to me, or to a role I hold (the server decides who I am from the token).
+  const { data } = await http.get<ApprovalTask[]>('/v1/tasks', { params: { mine: true, status: 'PENDING' } })
+  return data
+}
+
+export async function listTasksByInstance(instanceId: string): Promise<ApprovalTask[]> {
+  const { data } = await http.get<ApprovalTask[]>('/v1/tasks', {
+    params: { instanceId },
+  })
   return data
 }
 
 export async function getInstance(id: string): Promise<ApprovalInstance> {
-  if (USE_MOCK) return mockInstances.find((i) => i.id === id) ?? mockInstances[0]
   const { data } = await http.get<ApprovalInstance>(`/v1/approval-instances/${id}`)
+  return data
+}
+
+export async function createInstance(
+  req: CreateApprovalRequest,
+): Promise<ApprovalInstance> {
+  const { data } = await http.post<ApprovalInstance>('/v1/approval-instances', req)
+  return data
+}
+
+export async function approveTask(
+  taskId: string,
+  req: TaskActionRequest,
+): Promise<ApprovalInstance> {
+  const { data } = await http.post<ApprovalInstance>(`/v1/tasks/${taskId}/approve`, req)
+  return data
+}
+
+export async function rejectTask(
+  taskId: string,
+  req: TaskActionRequest,
+): Promise<ApprovalInstance> {
+  const { data } = await http.post<ApprovalInstance>(`/v1/tasks/${taskId}/reject`, req)
+  return data
+}
+
+/** Withdraw a running instance — allowed for its initiator only (enforced server-side). */
+export async function withdrawInstance(
+  instanceId: string,
+  req: TaskActionRequest,
+): Promise<ApprovalInstance> {
+  const { data } = await http.post<ApprovalInstance>(`/v1/approval-instances/${instanceId}/withdraw`, req)
   return data
 }

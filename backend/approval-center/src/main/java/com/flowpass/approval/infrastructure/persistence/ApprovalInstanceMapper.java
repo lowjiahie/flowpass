@@ -6,6 +6,8 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+import java.util.List;
+
 /**
  * MyBatis mapper for {@code approval_instance}. Explicit SQL keeps the tenant filter and optimistic
  * version check visible and auditable. Mappers are infrastructure only — never referenced by domain.
@@ -16,7 +18,7 @@ public interface ApprovalInstanceMapper {
     @Select("""
             SELECT id, tenant_id, application_id, business_key, template_key,
                    initiator_type, initiator_id, amount, currency,
-                   definition_version, status, version
+                   definition_version, status, version, variables_json
             FROM approval_instance
             WHERE tenant_id = #{tenantId} AND id = #{id}
             """)
@@ -26,11 +28,11 @@ public interface ApprovalInstanceMapper {
             INSERT INTO approval_instance
                 (id, tenant_id, application_id, business_key, template_key,
                  initiator_type, initiator_id, amount, currency,
-                 definition_version, status, version, created_at, updated_at)
+                 definition_version, status, version, variables_json, created_at, updated_at)
             VALUES
                 (#{id}, #{tenantId}, #{applicationId}, #{businessKey}, #{templateKey},
                  #{initiatorType}, #{initiatorId}, #{amount}, #{currency},
-                 #{definitionVersion}, #{status}, #{version}, now(), now())
+                 #{definitionVersion}, #{status}, #{version}, #{variablesJson}::jsonb, now(), now())
             """)
     int insert(ApprovalInstanceRow row);
 
@@ -40,4 +42,23 @@ public interface ApprovalInstanceMapper {
             WHERE id = #{id} AND version = #{version} - 1
             """)
     int updateStatus(@Param("id") String id, @Param("status") String status, @Param("version") long version);
+
+    @Select("""
+            <script>
+            SELECT id, tenant_id, application_id, business_key, template_key,
+                   initiator_type, initiator_id, amount, currency,
+                   definition_version, status, version, variables_json
+            FROM approval_instance
+            WHERE tenant_id = #{tenantId}
+            <if test="status != null"> AND status = #{status}</if>
+            <if test="cursorId != null"> AND id &gt; #{cursorId}</if>
+            ORDER BY id ASC
+            LIMIT #{limit}
+            </script>
+            """)
+    List<ApprovalInstanceRow> findPage(
+            @Param("tenantId") String tenantId,
+            @Param("status") String status,
+            @Param("cursorId") String cursorId,
+            @Param("limit") int limit);
 }

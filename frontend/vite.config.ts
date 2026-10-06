@@ -15,8 +15,10 @@ export default defineConfig({
     // 开发时把 /api 代理到后端网关，避免 CORS。后端就绪前可开启 mock。
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:9000',
         changeOrigin: true,
+        // 后端接口挂在 /v1/...（无 /api 前缀），转发时去掉 /api。
+        rewrite: (p) => p.replace(/^\/api/, ''),
       },
     },
   },
