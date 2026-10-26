@@ -7,18 +7,59 @@
   "duplicateEmailsAllowed": false,
   "resetPasswordAllowed": true,
   "bruteForceProtected": true,
-
   "roles": {
     "realm": [],
     "client": {
       "approval-web": [
-        { "name": "approval.request.read", "description": "View approval requests" },
-        { "name": "approval.request.create", "description": "Create approval requests" },
-        { "name": "approval.request.approve", "description": "Approve approval requests" }
+        {
+          "name": "approval.request.read",
+          "description": "View approval requests"
+        },
+        {
+          "name": "approval.request.create",
+          "description": "Create approval requests"
+        },
+        {
+          "name": "approval.request.approve",
+          "description": "Approve approval requests"
+        }
+      ],
+      "approval-api": [
+        {
+          "name": "approval.request.read",
+          "description": "View approval requests"
+        },
+        {
+          "name": "approval.request.create",
+          "description": "Create approval requests"
+        },
+        {
+          "name": "approval.request.approve",
+          "description": "Approve, transfer, add-sign and return tasks"
+        },
+        {
+          "name": "approval.request.reject",
+          "description": "Reject tasks"
+        },
+        {
+          "name": "approval.request.audit",
+          "description": "Read the audit ledger"
+        },
+        {
+          "name": "approval.template.manage",
+          "description": "Manage templates, SLA policies"
+        },
+        {
+          "name": "approval.rule.manage",
+          "description": "Manage decision rules"
+        },
+        {
+          "name": "approval.webhook.manage",
+          "description": "Manage webhook subscriptions"
+        }
       ]
     }
   },
-
   "clients": [
     {
       "clientId": "approval-web",
@@ -30,8 +71,12 @@
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
       "fullScopeAllowed": false,
-      "redirectUris": ["http://localhost:5173/*"],
-      "webOrigins": ["http://localhost:5173"],
+      "redirectUris": [
+        "http://localhost:5173/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173"
+      ],
       "attributes": {
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "http://localhost:5173/*"
@@ -52,9 +97,42 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "approval-api",
+      "name": "Approval API",
+      "enabled": true,
+      "bearerOnly": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false
+    },
+    {
+      "clientId": "approval-seed",
+      "name": "Dev seed script (local only)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "fullScopeAllowed": true,
+      "protocolMappers": [
+        {
+          "name": "tenant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "tenant_id",
+            "claim.value": "default",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "jsonType.label": "String"
+          }
+        }
+      ]
     }
   ],
-
   "users": [
     {
       "username": "demo",
@@ -64,15 +142,116 @@
       "firstName": "Demo",
       "lastName": "User",
       "credentials": [
-        { "type": "password", "value": "demo", "temporary": false }
+        {
+          "type": "password",
+          "value": "demo",
+          "temporary": false
+        }
       ],
       "clientRoles": {
         "approval-web": [
           "approval.request.read",
           "approval.request.create",
           "approval.request.approve"
+        ],
+        "approval-api": [
+          "approval.request.read",
+          "approval.request.create",
+          "approval.request.approve",
+          "approval.request.reject",
+          "approval.request.audit",
+          "approval.template.manage",
+          "approval.rule.manage",
+          "approval.webhook.manage"
+        ]
+      },
+      "id": "user-demo"
+    },
+    {
+      "id": "user-alice",
+      "username": "alice",
+      "enabled": true,
+      "email": "alice@example.com",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Manager",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "alice",
+          "temporary": false
+        }
+      ],
+      "clientRoles": {
+        "approval-api": [
+          "approval.request.read",
+          "approval.request.approve",
+          "approval.request.reject"
+        ]
+      }
+    },
+    {
+      "id": "user-bob",
+      "username": "bob",
+      "enabled": true,
+      "email": "bob@example.com",
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Director",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "bob",
+          "temporary": false
+        }
+      ],
+      "clientRoles": {
+        "approval-api": [
+          "approval.request.read",
+          "approval.request.approve",
+          "approval.request.reject"
+        ]
+      }
+    },
+    {
+      "id": "user-carol",
+      "username": "carol",
+      "enabled": true,
+      "email": "carol@example.com",
+      "emailVerified": true,
+      "firstName": "Carol",
+      "lastName": "Finance",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "carol",
+          "temporary": false
+        }
+      ],
+      "clientRoles": {
+        "approval-api": [
+          "approval.request.read",
+          "approval.request.approve",
+          "approval.request.reject"
         ]
       }
     }
-  ]
+  ],
+  "clientScopeMappings": {
+    "approval-api": [
+      {
+        "client": "approval-web",
+        "roles": [
+          "approval.request.read",
+          "approval.request.create",
+          "approval.request.approve",
+          "approval.request.reject",
+          "approval.request.audit",
+          "approval.template.manage",
+          "approval.rule.manage",
+          "approval.webhook.manage"
+        ]
+      }
+    ]
+  }
 }
