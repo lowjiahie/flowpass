@@ -131,6 +131,7 @@ public final class FlowDefinitionValidator {
         checkAttributes(process, problems);
 
         Map<String, String> nodeTypes = new HashMap<>();
+        Map<String, Element> nodeElements = new HashMap<>();
         List<Element> flows = new ArrayList<>();
         Set<String> ids = new HashSet<>();
         int starts = 0;
@@ -153,6 +154,7 @@ public final class FlowDefinitionValidator {
                 flows.add(element);
             } else if (NODES.contains(name)) {
                 nodeTypes.put(id, name);
+                nodeElements.put(id, element);
                 if ("startEvent".equals(name)) {
                     starts++;
                 }
@@ -191,6 +193,7 @@ public final class FlowDefinitionValidator {
             }
         }
         checkReachable(nodeTypes, outgoing, problems);
+        checkApprovalSemantics(nodeElements, flows, problems);
     }
 
     private static void checkReachable(Map<String, String> nodeTypes, Map<String, List<String>> outgoing,
@@ -345,6 +348,135 @@ public final class FlowDefinitionValidator {
     }
 
     // ------------------------------------------------------------------------------------------------
+
+    // ------------------------------------------------------------------------------------------------
+    // Structure the engine's outcome handling depends on. Whitelisting elements is not enough: the run's
+    // result is the end event it reaches, so a drawing that forgets to route a rejection to endRejected would
+    // finish as *approved*, and a round entered without checking it has approvers would pass on its own.
+    // ------------------------------------------------------------------------------------------------
+
+    private static final String REJECTED_CONDITION = "${rejected}";
+    private static final String RETURNED_CONDITION = "${returned}";
+
+    private static void checkApprovalSemantics(Map<String, Element> nodes, List<Element> flows,
+                                               List<String> problems) {
+        Map<String, List<Element>> outgoing = new HashMap<>();
+        Map<String, List<Element>> incoming = new HashMap<>();
+        for (Element flow : flows) {
+            String source = flow.getAttribute("sourceRef");
+            String target = flow.getAttribute("targetRef");
+            if (nodes.containsKey(source) && nodes.containsKey(target)) {
+                outgoing.computeIfAbsent(source, k -> new ArrayList<>()).add(flow);
+                incoming.computeIfAbsent(target, k -> new ArrayList<>()).add(flow);
+            }
+        }
+
+        for (Map.Entry<String, Element> entry : nodes.entrySet()) {
+            String id = entry.getKey();
+            Element node = entry.getValue();
+            if ("userTask".equals(node.getLocalName())) {
+                String collection = collectionOf(node);
+                if (collection != null) {
+                    checkApprovalTask(id, collection, nodes, outgoing.getOrDefault(id, List.of()),
+                            incoming.getOrDefault(id, List.of()), problems);
+                }
+            } else if ("exclusiveGateway".equals(node.getLocalName())) {
+                checkGatewayRouting(id, node, outgoing.getOrDefault(id, List.of()), problems);
+            }
+        }
+    }
+
+    private static void checkApprovalTask(String id, String collection, Map<String, Element> nodes,
+                                          List<Element> outgoing, List<Element> incoming, List<String> problems) {
+        // 1. Whatever the approvers decide, a rejection must end the run as rejected.
+        boolean routesRejection = false;
+        if (outgoing.size() == 1) {
+            Element next = nodes.get(outgoing.get(0).getAttribute("targetRef"));
+            if (next != null && "exclusiveGateway".equals(next.getLocalName())) {
+                for (Element flow : flowsLeaving(next, nodes)) {
+                    if (REJECTED_CONDITION.equals(conditionOf(flow))
+                            && END_REJECTED.equals(flow.getAttribute("targetRef"))) {
+                        routesRejection = true;
+                    }
+                }
+            }
+        }
+        if (!routesRejection) {
+            problems.add("approval task '" + id + "' must be followed by an exclusive gateway with a flow "
+                    + REJECTED_CONDITION + " to the '" + END_REJECTED + "' end event, so a rejection can never finish "
+                    + "as approved");
+        }
+
+        // 2. A round is only entered after checking that it has approvers (an empty round would pass by itself);
+        //    the only other way in is a return from the round after it.
+        String guard = "${" + (collection.equals("approvers") ? "hasApprovers" : "hasApprovers" + collection.substring(9)) + "}";
+        for (Element flow : incoming) {
+            String condition = conditionOf(flow);
+            if (!guard.equals(condition) && !RETURNED_CONDITION.equals(condition)) {
+                problems.add("flow '" + flow.getAttribute("id") + "' enters approval task '" + id
+                        + "' without checking whether the round has approvers: give it the condition " + guard
+                        + " (or " + RETURNED_CONDITION + " for a return from a later round)");
+            }
+        }
+    }
+
+    /** A gateway with several ways out needs a default one, or the engine fails at run time with no way to go. */
+    private static void checkGatewayRouting(String id, Element gateway, List<Element> outgoing, List<String> problems) {
+        if (outgoing.size() < 2) {
+            return;
+        }
+        String defaultFlow = gateway.getAttribute("default");
+        boolean known = outgoing.stream().anyMatch(f -> f.getAttribute("id").equals(defaultFlow));
+        if (defaultFlow.isBlank() || !known) {
+            problems.add("gateway '" + id + "' has several outgoing flows and needs a default flow");
+            return;
+        }
+        for (Element flow : outgoing) {
+            boolean isDefault = flow.getAttribute("id").equals(defaultFlow);
+            boolean hasCondition = !conditionOf(flow).isEmpty();
+            if (!isDefault && !hasCondition) {
+                problems.add("flow '" + flow.getAttribute("id") + "' leaves gateway '" + id
+                        + "' and needs a condition (only the default flow has none)");
+            }
+        }
+    }
+
+    private static List<Element> flowsLeaving(Element gateway, Map<String, Element> nodes) {
+        // Resolved by the caller's flow list through the shared parent process element.
+        List<Element> result = new ArrayList<>();
+        Node parent = gateway.getParentNode();
+        if (parent == null) {
+            return result;
+        }
+        for (Element child : children((Element) parent)) {
+            if ("sequenceFlow".equals(child.getLocalName())
+                    && gateway.getAttribute("id").equals(child.getAttribute("sourceRef"))) {
+                result.add(child);
+            }
+        }
+        return result;
+    }
+
+    /** The loop collection of an approval task, or {@code null} when the task is not a multi-instance one. */
+    private static String collectionOf(Element userTask) {
+        for (Element child : children(userTask)) {
+            if ("multiInstanceLoopCharacteristics".equals(child.getLocalName())) {
+                String collection = child.getAttributeNS(FLOWABLE_NS, "collection");
+                return collection.isEmpty() ? null : collection;
+            }
+        }
+        return null;
+    }
+
+    /** The condition of a flow with all whitespace removed ({@code ${ rejected }} equals {@code ${rejected}}). */
+    private static String conditionOf(Element flow) {
+        for (Element child : children(flow)) {
+            if ("conditionExpression".equals(child.getLocalName())) {
+                return child.getTextContent().replaceAll("\\s+", "");
+            }
+        }
+        return "";
+    }
 
     private static Document parse(String xml) throws Exception {
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();

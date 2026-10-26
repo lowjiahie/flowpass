@@ -267,8 +267,50 @@ class FlowDefinitionValidatorTest {
 
     @Test
     void theApprovalRoundCollectionsOneToFiveAreAccepted() {
-        assertThat(problems(mutate("flowable:collection=\"approvers2\"", "flowable:collection=\"approvers5\""))).isEmpty();
-        assertThat(problems(mutate("flowable:collection=\"approvers\"", "flowable:collection=\"approvers3\""))).isEmpty();
+        // A round's collection and its "has approvers" guard move together (round 2 is entered via ${hasApprovers2}).
+        String round5 = mutate("flowable:collection=\"approvers2\"", "flowable:collection=\"approvers5\"")
+                .replace("${hasApprovers2}", "${hasApprovers5}");
+        assertThat(problems(round5)).isEmpty();
+    }
+
+    // ---- structure the outcome depends on ----------------------------------------------------------------
+
+    @Test
+    void aRejectionThatDoesNotEndAsRejectedIsRefused() {
+        // The round-1 decision gateway no longer sends ${rejected} to endRejected: a rejection would end approved.
+        String xml = valid.replaceFirst(
+                "(id=\"flow_to_rejected\"[^>]*>\\s*<conditionExpression[^>]*>)\\$\\{rejected}",
+                "$1\\${amount > 1}");
+        assertThat(xml).as("mutation applied").isNotEqualTo(valid);
+        assertThat(problems(xml)).anyMatch(p -> p.contains("approval task 'approveTask'") && p.contains("rejection"));
+    }
+
+    @Test
+    void anApprovalTaskNotFollowedByAGatewayIsRefused() {
+        String xml = mutate("<sequenceFlow id=\"flow_approve_to_decision\" sourceRef=\"approveTask\" targetRef=\"decisionGateway\"/>",
+                "<sequenceFlow id=\"flow_approve_to_decision\" sourceRef=\"approveTask\" targetRef=\"endApproved\"/>");
+        assertThat(problems(xml)).anyMatch(p -> p.contains("approval task 'approveTask'") && p.contains("rejection"));
+    }
+
+    @Test
+    void aRoundEnteredWithoutCheckingItHasApproversIsRefused() {
+        String xml = mutate("<conditionExpression xsi:type=\"tFormalExpression\">${hasApprovers}</conditionExpression>",
+                "<conditionExpression xsi:type=\"tFormalExpression\">${amount > 0}</conditionExpression>");
+        assertThat(problems(xml)).anyMatch(p -> p.contains("enters approval task 'approveTask'")
+                && p.contains("${hasApprovers}"));
+    }
+
+    @Test
+    void aGatewayWithSeveralWaysOutNeedsADefault() {
+        String xml = mutate(" default=\"flow_to_round2\"", "");
+        assertThat(problems(xml)).anyMatch(p -> p.contains("'decisionGateway'") && p.contains("default flow"));
+    }
+
+    @Test
+    void aNonDefaultFlowWithoutConditionIsRefused() {
+        String xml = mutate("<exclusiveGateway id=\"decisionGateway\" name=\"Rejected?\" default=\"flow_to_round2\"/>",
+                "<exclusiveGateway id=\"decisionGateway\" name=\"Rejected?\" default=\"flow_to_rejected\"/>");
+        assertThat(problems(xml)).anyMatch(p -> p.contains("'flow_to_round2'") && p.contains("needs a condition"));
     }
 
     @Test
