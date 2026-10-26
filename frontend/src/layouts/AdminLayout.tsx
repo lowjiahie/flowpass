@@ -10,10 +10,15 @@ import {
   Typography,
 } from 'antd'
 import {
+  ApartmentOutlined,
+  AuditOutlined,
   CheckSquareOutlined,
   DashboardOutlined,
   FileSearchOutlined,
+  FileTextOutlined,
   LogoutOutlined,
+  SendOutlined,
+  SwapOutlined,
   UserOutlined,
 } from '@ant-design/icons'
 import { useAuthStore } from '@/store/auth'
@@ -52,6 +57,11 @@ export default function AdminLayout() {
     { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard', required: null },
     { key: '/todo', icon: <CheckSquareOutlined />, label: 'My Todo', required: 'approval.request.approve' },
     { key: '/approvals', icon: <FileSearchOutlined />, label: 'Approvals', required: 'approval.request.read' },
+    { key: '/delegations', icon: <SwapOutlined />, label: 'Delegations', required: 'approval.request.approve' },
+    { key: '/admin/templates', icon: <FileTextOutlined />, label: 'Templates', required: 'approval.template.manage' },
+    { key: '/admin/rules', icon: <ApartmentOutlined />, label: 'Approver Rules', required: 'approval.rule.manage' },
+    { key: '/admin/audit', icon: <AuditOutlined />, label: 'Audit Log', required: 'approval.request.audit' },
+    { key: '/admin/webhooks', icon: <SendOutlined />, label: 'Webhooks', required: 'approval.webhook.manage' },
   ]
 
   const menuItems = useMemo(
@@ -61,6 +71,13 @@ export default function AdminLayout() {
         .map(({ key, icon, label }) => ({ key, icon, label })),
     [permissions],
   )
+
+  // A nested route (e.g. /admin/templates/:key) keeps its section highlighted.
+  const selectedKeys = allItems
+    .map((i) => i.key)
+    .filter((k) => location.pathname === k || location.pathname.startsWith(`${k}/`))
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 1)
 
   const onLogout = async () => {
     logout()
@@ -82,7 +99,7 @@ export default function AdminLayout() {
         <Menu
           theme="dark"
           mode="inline"
-          selectedKeys={[location.pathname]}
+          selectedKeys={selectedKeys}
           items={menuItems}
           onClick={(e) => navigate(e.key)}
         />

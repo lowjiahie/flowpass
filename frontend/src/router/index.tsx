@@ -6,6 +6,12 @@ import Dashboard from '@/pages/Dashboard'
 import TodoList from '@/pages/approval/TodoList'
 import ApprovalList from '@/pages/approval/ApprovalList'
 import ApprovalDetail from '@/pages/approval/ApprovalDetail'
+import Delegations from '@/pages/approval/Delegations'
+import TemplateList from '@/pages/admin/TemplateList'
+import TemplateDetail from '@/pages/admin/TemplateDetail'
+import RuleList from '@/pages/admin/RuleList'
+import AuditLog from '@/pages/admin/AuditLog'
+import WebhookDeliveries from '@/pages/admin/WebhookDeliveries'
 
 // 路由守卫：未登录时跳转登录页。
 function RequireAuth() {
@@ -28,6 +34,12 @@ export const router = createBrowserRouter([
           { path: 'todo', element: <TodoList /> },
           { path: 'approvals', element: <ApprovalList /> },
           { path: 'approvals/:id', element: <ApprovalDetail /> },
+          { path: 'delegations', element: <Delegations /> },
+          { path: 'admin/templates', element: <TemplateList /> },
+          { path: 'admin/templates/:key', element: <TemplateDetail /> },
+          { path: 'admin/rules', element: <RuleList /> },
+          { path: 'admin/audit', element: <AuditLog /> },
+          { path: 'admin/webhooks', element: <WebhookDeliveries /> },
         ],
       },
     ],

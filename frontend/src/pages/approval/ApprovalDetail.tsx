@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { App as AntApp, Button, Descriptions, Steps } from 'antd'
-import type { ApprovalInstance } from '@/types'
-import { getInstance, withdrawInstance } from '@/api/approval'
+import { App as AntApp, Button, Descriptions, Table, Timeline, Typography } from 'antd'
+import type { ColumnsType } from 'antd/es/table'
+import type { ApprovalInstance, ApprovalTask, AuditRecord } from '@/types'
+import { getInstance, listTasksByInstance, withdrawInstance } from '@/api/approval'
+import { listAuditRecords } from '@/api/admin'
 import { useAuthStore } from '@/store/auth'
+import { problemMessage } from '@/utils/problem'
 import StatusTag from '@/components/StatusTag'
 import PageContainer from '@/components/PageContainer'
 
@@ -11,13 +14,29 @@ export default function ApprovalDetail() {
   const { id } = useParams<{ id: string }>()
   const { message } = AntApp.useApp()
   const user = useAuthStore((s) => s.user)
+  const permissions = useAuthStore((s) => s.permissions)
   const [instance, setInstance] = useState<ApprovalInstance | null>(null)
+  const [tasks, setTasks] = useState<ApprovalTask[]>([])
+  const [history, setHistory] = useState<AuditRecord[]>([])
   const [withdrawing, setWithdrawing] = useState(false)
+  const canSeeAudit = permissions.includes('approval.request.audit')
 
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!id) return
-    getInstance(id).then(setInstance)
-  }, [id])
+    getInstance(id)
+      .then(setInstance)
+      .catch((err) => message.error(problemMessage(err, 'Failed to load approval')))
+    listTasksByInstance(id)
+      .then(setTasks)
+      .catch(() => setTasks([]))
+    if (canSeeAudit) {
+      listAuditRecords({ instanceId: id, limit: 100 })
+        .then(setHistory)
+        .catch(() => setHistory([]))
+    }
+  }, [id, canSeeAudit, message])
+
+  useEffect(load, [load])
 
   const onWithdraw = async () => {
     if (!id) return
@@ -25,15 +44,23 @@ export default function ApprovalDetail() {
     try {
       await withdrawInstance(id, {})
       message.success('Withdrawn')
-      if (id) {
-        getInstance(id).then(setInstance)
-      }
-    } catch {
-      message.error('Withdraw failed')
+      load()
+    } catch (err) {
+      message.error(problemMessage(err, 'Withdraw failed'))
     } finally {
       setWithdrawing(false)
     }
   }
+
+  const taskColumns: ColumnsType<ApprovalTask> = [
+    { title: 'Task', dataIndex: 'name' },
+    {
+      title: 'Assignee',
+      render: (_, t) => (t.assigneeType === 'ROLE' ? `Role: ${t.assigneeId}` : t.assigneeId),
+    },
+    { title: 'Due', dataIndex: 'dueAt', render: (d?: string | null) => (d ? new Date(d).toLocaleString() : '-') },
+    { title: 'Status', dataIndex: 'status', render: (s: string) => <StatusTag status={s} /> },
+  ]
 
   if (!instance) return <PageContainer title="Approval" loading />
 
@@ -66,16 +93,30 @@ export default function ApprovalDetail() {
         </Descriptions.Item>
       </Descriptions>
 
-      <Steps
-        style={{ marginTop: 24 }}
-        direction="vertical"
-        current={instance.status === 'APPROVED' ? 2 : instance.status === 'RUNNING' ? 1 : 0}
-        items={[
-          { title: 'Submitted', description: instance.createdAt },
-          { title: 'In Approval' },
-          { title: 'Approved' },
-        ]}
-      />
+      <Typography.Title level={5} style={{ marginTop: 24 }}>
+        Tasks
+      </Typography.Title>
+      <Table rowKey="id" columns={taskColumns} dataSource={tasks} pagination={false} size="small" />
+
+      {canSeeAudit && (
+        <>
+          <Typography.Title level={5} style={{ marginTop: 24 }}>
+            History
+          </Typography.Title>
+          <Timeline
+            items={history.map((r) => ({
+              key: r.id,
+              children: (
+                <>
+                  <StatusTag status={r.action} /> {r.actorType}:{r.actorId}{' '}
+                  <Typography.Text type="secondary">{new Date(r.occurredAt).toLocaleString()}</Typography.Text>
+                  {r.comment && <div>{r.comment}</div>}
+                </>
+              ),
+            }))}
+          />
+        </>
+      )}
     </PageContainer>
   )
 }

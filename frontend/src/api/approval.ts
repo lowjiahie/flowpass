@@ -60,3 +60,21 @@ export async function withdrawInstance(
   const { data } = await http.post<ApprovalInstance>(`/v1/approval-instances/${instanceId}/withdraw`, req)
   return data
 }
+
+/** Hand one of my open tasks to another user (server checks I am the assignee / hold the role). */
+export async function transferTask(taskId: string, to: string, comment?: string): Promise<ApprovalTask> {
+  const { data } = await http.post<ApprovalTask>(`/v1/tasks/${taskId}/transfer`, { to, comment })
+  return data
+}
+
+/** Add-sign: ask another user to approve this round as well. Returns the task opened for them. */
+export async function addApprover(taskId: string, userId: string, comment?: string): Promise<ApprovalTask> {
+  const { data } = await http.post<ApprovalTask>(`/v1/tasks/${taskId}/add-approver`, { userId, comment })
+  return data
+}
+
+/** Send the request back to the previous approval round. */
+export async function returnTask(taskId: string, comment?: string): Promise<ApprovalInstance> {
+  const { data } = await http.post<ApprovalInstance>(`/v1/tasks/${taskId}/return`, { comment })
+  return data
+}

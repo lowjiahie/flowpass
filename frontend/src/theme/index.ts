@@ -32,6 +32,18 @@ export const designTokens = {
     WITHDRAWN: 'warning',
     TERMINATED: 'default',
     PENDING: 'processing', // 任务状态：待处理
+    CLAIMED: 'processing',
+    RETURNED: 'warning',
+    CANCELLED: 'default',
+    PUBLISHED: 'success', // 模板状态
+    DISABLED: 'default',
+    DELIVERED: 'success', // Webhook 投递状态
+    FAILED: 'error',
+    ESCALATED: 'warning', // 审计动作
+    OVERDUE: 'error',
+    DELEGATED: 'processing',
+    ACTIVE: 'success', // 代理状态
+    INACTIVE: 'default',
   } as Record<string, string>,
 } as const
 

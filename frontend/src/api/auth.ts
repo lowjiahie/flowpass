@@ -38,7 +38,8 @@ function parseJwt(token: string): Record<string, unknown> | null {
 function fromKeycloakToken(): AuthResult {
   const claims = (keycloak.tokenParsed ?? parseJwt(keycloak.token ?? '')) as Record<string, unknown>
   const resourceAccess = (claims.resource_access ?? {}) as Record<string, { roles?: string[] }>
-  const roles = resourceAccess['approval-web']?.roles ?? []
+  // The API's authorities are the client roles of `approval-api` (what the backend reads).
+  const roles = resourceAccess['approval-api']?.roles ?? resourceAccess['approval-web']?.roles ?? []
   return {
     token: keycloak.token ?? '',
     user: {
@@ -50,10 +51,17 @@ function fromKeycloakToken(): AuthResult {
   }
 }
 
+/** 回到用户当前所在页面（刷新/深链接不应被弹回首页）。登录页本身不作为回调目标。 */
+function currentLocation(): string {
+  const { origin, pathname, search } = window.location
+  const path = pathname === '/login' ? '/' : pathname
+  return `${origin}${path}${search}`
+}
+
 /** 登录：mock 直接返回；SSO 模式下重定向到 Keycloak（Authorization Code + PKCE）。 */
 export async function login(_username?: string, _password?: string): Promise<AuthResult> {
   if (USE_MOCK) return mockLogin()
-  await keycloak.login({ redirectUri: `${window.location.origin}/` })
+  await keycloak.login({ redirectUri: currentLocation() })
   return fromKeycloakToken()
 }
 
@@ -69,7 +77,7 @@ export function initKeycloak(): Promise<boolean> {
     .init({
       onLoad: 'login-required',
       pkceMethod: 'S256',
-      redirectUri: `${window.location.origin}/`,
+      redirectUri: currentLocation(),
     })
     .then((authenticated) => authenticated && Boolean(keycloak.token))
     .catch(() => false)
