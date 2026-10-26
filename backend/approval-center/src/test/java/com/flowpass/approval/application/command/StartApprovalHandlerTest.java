@@ -136,7 +136,7 @@ class StartApprovalHandlerTest {
         assertThat(eventCaptor.getValue().get(0)).isInstanceOf(ApprovalInstanceCreated.class);
 
         verify(workflowEnginePort).start(eq(tenant), anyString(), eq("purchase_request"), eq(3), anyMap(),
-                eq(List.of(new CandidateApprover("USER", "u_2"))));
+                eq(List.of(List.of(new CandidateApprover("USER", "u_2")))));
 
         ArgumentCaptor<ApprovalTask> taskCaptor = ArgumentCaptor.forClass(ApprovalTask.class);
         verify(taskRepository).save(taskCaptor.capture());
@@ -390,16 +390,27 @@ class StartApprovalHandlerTest {
     }
 
     @Test
-    void numericStringsAndPlainNumbersAreAcceptedAsAmounts() {
+    void anAmountMustBeANumberNotNumericText() {
+        publishedWithoutSchema();
+
+        assertThatThrownBy(() -> handler().handle(withVariables(Map.of("amount", "250.50", "currency", "MYR"))))
+                .satisfies(ex -> assertInvalid(ex, "amount")).hasMessageContaining("not text");
+    }
+
+    @Test
+    void plainNumbersOfAnyJavaTypeAreAcceptedAsAmounts() {
         when(definitionRepository.findPublished(tenant, "purchase_request")).thenReturn(Optional.of(definition()));
         when(definitionRepository.findFormSchema(tenant, "purchase_request", 3)).thenReturn(Optional.empty());
         when(candidateResolver.resolve(any(), anyString(), any(), anyMap())).thenReturn(ApproverResolution.none());
         when(workflowEnginePort.start(any(), anyString(), anyString(), any(), anyMap(), anyList()))
                 .thenReturn(new WorkflowStep(List.of(), null));
 
-        ApprovalInstanceDTO dto = handler().handle(withVariables(Map.of("amount", "250.50", "currency", "MYR")));
-
-        assertThat(dto.amount()).isEqualByComparingTo("250.50");
+        assertThat(handler().handle(withVariables(Map.of("amount", 250, "currency", "MYR"))).amount())
+                .isEqualByComparingTo("250");
+        assertThat(handler().handle(withVariables(Map.of("amount", 250.5, "currency", "MYR"))).amount())
+                .isEqualByComparingTo("250.5");
+        assertThat(handler().handle(withVariables(Map.of("amount", new BigDecimal("250.50"), "currency", "MYR"))).amount())
+                .isEqualByComparingTo("250.50");
     }
 
     @Test

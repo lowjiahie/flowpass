@@ -264,4 +264,18 @@ class FlowDefinitionValidatorTest {
                 .hasMessageContaining("'class'")
                 .hasMessageContaining("a.b");
     }
+
+    @Test
+    void theApprovalRoundCollectionsOneToFiveAreAccepted() {
+        assertThat(problems(mutate("flowable:collection=\"approvers2\"", "flowable:collection=\"approvers5\""))).isEmpty();
+        assertThat(problems(mutate("flowable:collection=\"approvers\"", "flowable:collection=\"approvers3\""))).isEmpty();
+    }
+
+    @Test
+    void aCollectionOutsideTheRoundContractIsRefused() {
+        for (String bad : new String[] {"approvers1", "approvers6", "approvers0", "approvers22", "somethingElse", "approvers "}) {
+            assertThat(problems(mutate("flowable:collection=\"approvers2\"", "flowable:collection=\"" + bad + "\"")))
+                    .as(bad).anyMatch(p -> p.contains("loop collection must be"));
+        }
+    }
 }

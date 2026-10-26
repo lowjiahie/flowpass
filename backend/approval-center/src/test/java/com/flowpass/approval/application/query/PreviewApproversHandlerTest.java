@@ -42,7 +42,7 @@ class PreviewApproversHandlerTest {
         ApproverPreviewDTO result = handler().handle(
                 new PreviewApproversQuery(tenant, "purchase_request", initiator, Map.of("amount", 5000)));
 
-        assertThat(result.approvers()).containsExactly(new ApproverDTO("USER", "u_big"), new ApproverDTO("ROLE", "finance"));
+        assertThat(result.approvers()).containsExactly(new ApproverDTO("USER", "u_big", 1), new ApproverDTO("ROLE", "finance", 1));
         assertThat(result.problems()).isEmpty();
     }
 
@@ -65,5 +65,23 @@ class PreviewApproversHandlerTest {
 
         assertThat(handler().handle(new PreviewApproversQuery(tenant, "purchase_request", initiator, null))
                 .approvers()).isEmpty();
+    }
+
+    @Test
+    void showsTheApprovalChainRoundByRound() {
+        when(candidateResolver.resolve(tenant, "purchase_request", initiator, Map.of("amount", 50000)))
+                .thenReturn(ApproverResolution.ofRounds(List.of(
+                        List.of(new CandidateApprover("USER", "u_boss")),
+                        List.of(new CandidateApprover("ROLE", "finance"), new CandidateApprover("USER", "u_ctrl")),
+                        List.of(new CandidateApprover("USER", "u_cfo"))), List.of()));
+
+        ApproverPreviewDTO result = handler().handle(
+                new PreviewApproversQuery(tenant, "purchase_request", initiator, Map.of("amount", 50000)));
+
+        assertThat(result.rounds()).containsExactly(
+                List.of(new ApproverDTO("USER", "u_boss", 1)),
+                List.of(new ApproverDTO("ROLE", "finance", 2), new ApproverDTO("USER", "u_ctrl", 2)),
+                List.of(new ApproverDTO("USER", "u_cfo", 3)));
+        assertThat(result.approvers()).hasSize(4);
     }
 }

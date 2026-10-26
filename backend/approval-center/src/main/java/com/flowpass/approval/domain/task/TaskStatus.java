@@ -12,5 +12,7 @@ public enum TaskStatus {
     APPROVED,
     REJECTED,
     TRANSFERRED,
+    /** Sent back to the previous approval round by its approver; the round it belonged to was discarded. */
+    RETURNED,
     CANCELLED
 }

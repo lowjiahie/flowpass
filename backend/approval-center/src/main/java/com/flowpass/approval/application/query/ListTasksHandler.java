@@ -6,6 +6,7 @@ import com.flowpass.approval.domain.task.ApprovalTask;
 import com.flowpass.approval.domain.task.AssigneeFilter;
 import com.flowpass.approval.domain.task.TaskRepository;
 import com.flowpass.approval.domain.task.TaskStatus;
+import com.flowpass.approval.application.common.ApprovalTaskDtos;
 import com.flowpass.approval.application.common.Permissions;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
@@ -47,13 +48,6 @@ public class ListTasksHandler {
     }
 
     private ApprovalTaskDTO toDto(ApprovalTask task) {
-        return new ApprovalTaskDTO(
-                task.id(),
-                task.instanceId(),
-                task.name(),
-                task.assignee() == null ? null : task.assignee().type(),
-                task.assignee() == null ? null : task.assignee().id(),
-                task.status().name(),
-                task.version());
+        return ApprovalTaskDtos.of(task);
     }
 }

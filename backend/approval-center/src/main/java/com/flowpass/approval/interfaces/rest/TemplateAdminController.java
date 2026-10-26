@@ -4,11 +4,13 @@ import com.flowpass.approval.application.command.CreateTemplateCommand;
 import com.flowpass.approval.application.command.CreateTemplateHandler;
 import com.flowpass.approval.application.command.PublishTemplateCommand;
 import com.flowpass.approval.application.command.PublishTemplateHandler;
+import com.flowpass.approval.application.command.SaveSlaPolicyCommand;
 import com.flowpass.approval.application.command.SaveTemplateDraftCommand;
 import com.flowpass.approval.application.command.SaveTemplateDraftHandler;
 import com.flowpass.approval.application.command.SaveTemplateFormSchemaCommand;
 import com.flowpass.approval.application.command.SaveTemplateFormSchemaHandler;
 import com.flowpass.approval.application.command.SetTemplateEnabledCommand;
+import com.flowpass.approval.application.command.SlaPolicyHandlers;
 import com.flowpass.approval.application.command.SetTemplateEnabledHandler;
 import com.flowpass.approval.application.port.CurrentActorPort;
 import com.flowpass.approval.application.port.CurrentTenantPort;
@@ -21,8 +23,10 @@ import com.flowpass.approval.application.query.ListTemplateVersionsQuery;
 import com.flowpass.approval.application.query.ListTemplatesHandler;
 import com.flowpass.approval.application.query.ListTemplatesQuery;
 import com.flowpass.approval.contract.dto.CreateTemplateRequest;
+import com.flowpass.approval.contract.dto.SaveSlaPolicyRequest;
 import com.flowpass.approval.contract.dto.SaveTemplateDraftRequest;
 import com.flowpass.approval.contract.dto.SaveTemplateFormSchemaRequest;
+import com.flowpass.approval.contract.dto.SlaPolicyDTO;
 import com.flowpass.approval.contract.dto.TemplateDTO;
 import com.flowpass.approval.contract.dto.TemplateDetailDTO;
 import com.flowpass.approval.contract.dto.TemplateVersionDTO;
@@ -55,6 +59,7 @@ public class TemplateAdminController {
 
     private final CreateTemplateHandler createHandler;
     private final SaveTemplateDraftHandler saveDraftHandler;
+    private final SlaPolicyHandlers slaHandlers;
     private final SaveTemplateFormSchemaHandler formSchemaHandler;
     private final PublishTemplateHandler publishHandler;
     private final SetTemplateEnabledHandler enabledHandler;
@@ -68,6 +73,7 @@ public class TemplateAdminController {
     public TemplateAdminController(
             CreateTemplateHandler createHandler,
             SaveTemplateDraftHandler saveDraftHandler,
+            SlaPolicyHandlers slaHandlers,
             SaveTemplateFormSchemaHandler formSchemaHandler,
             PublishTemplateHandler publishHandler,
             SetTemplateEnabledHandler enabledHandler,
@@ -79,6 +85,7 @@ public class TemplateAdminController {
             CurrentActorPort currentActor) {
         this.createHandler = createHandler;
         this.saveDraftHandler = saveDraftHandler;
+        this.slaHandlers = slaHandlers;
         this.formSchemaHandler = formSchemaHandler;
         this.publishHandler = publishHandler;
         this.enabledHandler = enabledHandler;
@@ -126,6 +133,25 @@ public class TemplateAdminController {
     public TemplateDTO clearFormSchema(@PathVariable("templateKey") String templateKey) {
         return formSchemaHandler.handle(
                 new SaveTemplateFormSchemaCommand(currentTenant.currentTenant(), templateKey, null));
+    }
+
+    @PutMapping("/{templateKey}/sla")
+    public SlaPolicyDTO saveSla(
+            @PathVariable("templateKey") String templateKey,
+            @RequestBody @Valid SaveSlaPolicyRequest body) {
+        return slaHandlers.save(new SaveSlaPolicyCommand(currentTenant.currentTenant(), templateKey,
+                body.dueAfterHours(), body.remindBeforeHours(), body.onOverdue(), body.escalateToUser()));
+    }
+
+    @GetMapping("/{templateKey}/sla")
+    public SlaPolicyDTO sla(@PathVariable("templateKey") String templateKey) {
+        return slaHandlers.get(currentTenant.currentTenant(), templateKey);
+    }
+
+    @DeleteMapping("/{templateKey}/sla")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteSla(@PathVariable("templateKey") String templateKey) {
+        slaHandlers.delete(currentTenant.currentTenant(), templateKey);
     }
 
     @PostMapping("/{templateKey}/publish")

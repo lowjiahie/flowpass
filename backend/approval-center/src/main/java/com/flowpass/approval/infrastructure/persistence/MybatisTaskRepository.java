@@ -5,6 +5,7 @@ import com.flowpass.approval.application.common.BusinessException;
 import com.flowpass.approval.domain.common.TenantId;
 import com.flowpass.approval.domain.task.ApprovalTask;
 import com.flowpass.approval.domain.task.AssigneeFilter;
+import com.flowpass.approval.domain.task.DueTaskRef;
 import com.flowpass.approval.domain.task.TaskRepository;
 import com.flowpass.approval.domain.task.TaskStatus;
 import org.springframework.stereotype.Repository;
@@ -42,6 +43,41 @@ public class MybatisTaskRepository implements TaskRepository {
     }
 
     @Override
+    public void updateAssignee(ApprovalTask task) {
+        int updated = mapper.updateAssignee(task.id(), task.assignee().type(), task.assignee().id(), task.version());
+        if (updated == 0) {
+            throw new BusinessException(BusinessErrorCode.CONFLICT, "Concurrent modification on task " + task.id());
+        }
+    }
+
+    @Override
+    public List<DueTaskRef> findDueForReminder(java.time.Instant now, int limit) {
+        return mapper.findDueForReminder(now, limit).stream()
+                .map(row -> new DueTaskRef(new TenantId(row.getTenantId()), row.getId())).toList();
+    }
+
+    @Override
+    public List<DueTaskRef> findOverdue(java.time.Instant now, int limit) {
+        return mapper.findOverdue(now, limit).stream()
+                .map(row -> new DueTaskRef(new TenantId(row.getTenantId()), row.getId())).toList();
+    }
+
+    @Override
+    public boolean claimReminder(TenantId tenantId, String taskId, java.time.Instant now) {
+        return mapper.claimReminder(tenantId.value(), taskId, now) == 1;
+    }
+
+    @Override
+    public boolean claimOverdue(TenantId tenantId, String taskId, java.time.Instant now) {
+        return mapper.claimOverdue(tenantId.value(), taskId, now) == 1;
+    }
+
+    @Override
+    public boolean existsUserTask(TenantId tenantId, String instanceId, String userId) {
+        return mapper.countUserTasks(tenantId.value(), instanceId, userId) > 0;
+    }
+
+    @Override
     public List<ApprovalTask> findOpenByInstance(TenantId tenantId, String instanceId) {
         return mapper.findOpenByInstance(tenantId.value(), instanceId).stream()
                 .map(this::toDomain)
@@ -70,7 +106,8 @@ public class MybatisTaskRepository implements TaskRepository {
                 TaskStatus.valueOf(row.getStatus()),
                 row.getVersion(),
                 row.getNodeKey(),
-                row.getWorkflowTaskRef());
+                row.getWorkflowTaskRef())
+                .withDeadlineState(row.getDueAt(), row.getRemindAt(), row.getRemindedAt(), row.getOverdueHandledAt());
     }
 
     private ApprovalTaskRow toRow(ApprovalTask task) {
@@ -87,6 +124,8 @@ public class MybatisTaskRepository implements TaskRepository {
         row.setVersion(task.version());
         row.setNodeKey(task.nodeKey());
         row.setWorkflowTaskRef(task.workflowTaskRef());
+        row.setDueAt(task.dueAt());
+        row.setRemindAt(task.remindAt());
         return row;
     }
 }

@@ -1,5 +1,6 @@
 package com.flowpass.approval.application.query;
 
+import com.flowpass.approval.application.common.ApprovalTaskDtos;
 import com.flowpass.approval.application.common.BusinessErrorCode;
 import com.flowpass.approval.application.common.BusinessException;
 import com.flowpass.approval.contract.dto.ApprovalTaskDTO;
@@ -35,13 +36,6 @@ public class GetTaskHandler {
                         BusinessErrorCode.TASK_NOT_FOUND,
                         "Approval task not found: " + query.taskId()));
 
-        return new ApprovalTaskDTO(
-                task.id(),
-                task.instanceId(),
-                task.name(),
-                task.assignee() == null ? null : task.assignee().type(),
-                task.assignee() == null ? null : task.assignee().id(),
-                task.status().name(),
-                task.version());
+        return ApprovalTaskDtos.of(task);
     }
 }

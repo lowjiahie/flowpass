@@ -51,6 +51,13 @@ springdoc:
 # the Testcontainers lifecycle or block the JVM from exiting. Enable by setting scheduler-enabled=true
 # in the runtime profile; the values below document the tunables pulled in by @Value defaults.
 flowpass:
+  # Deadline worker (reminders, overdue handling / escalation). Off by default like the other pollers; enable it in
+  # the runtime profile. Safe on several nodes: every reminder / escalation is claimed with a conditional update.
+  sla:
+    scheduler-enabled: false
+    batch-size: 100
+    poll-interval-ms: 60000
+    initial-delay-ms: 5000
   outbox:
     scheduler-enabled: false
     batch-size: 50

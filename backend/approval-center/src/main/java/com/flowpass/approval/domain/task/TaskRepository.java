@@ -22,6 +22,27 @@ public interface TaskRepository {
      */
     void updateStatus(ApprovalTask task);
 
+    /** Persist a new assignee with optimistic versioning (a concurrent change is a {@code CONFLICT}). */
+    void updateAssignee(ApprovalTask task);
+
+    /**
+     * Open tasks whose reminder time has come and that were not reminded yet — across tenants (a system worker's
+     * view; each task is then processed within its own tenant), oldest reminder first.
+     */
+    List<DueTaskRef> findDueForReminder(java.time.Instant now, int limit);
+
+    /** Open tasks past their deadline whose overdue handling has not happened yet — across tenants, oldest first. */
+    List<DueTaskRef> findOverdue(java.time.Instant now, int limit);
+
+    /** Atomically mark the task reminded; false when it was already reminded, finished, or not due (another worker won). */
+    boolean claimReminder(TenantId tenantId, String taskId, java.time.Instant now);
+
+    /** Atomically mark the task's overdue handling started; false when it was already, or the task is finished. */
+    boolean claimOverdue(TenantId tenantId, String taskId, java.time.Instant now);
+
+    /** True when the user already holds, or held, a task of this instance in any state. */
+    boolean existsUserTask(TenantId tenantId, String instanceId, String userId);
+
     /** All tasks of an instance that can still be acted on ({@code PENDING} or {@code CLAIMED}). */
     List<ApprovalTask> findOpenByInstance(TenantId tenantId, String instanceId);
 

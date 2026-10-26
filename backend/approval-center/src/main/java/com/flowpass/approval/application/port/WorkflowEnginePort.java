@@ -16,6 +16,9 @@ import java.util.Map;
  */
 public interface WorkflowEnginePort {
 
+    /** The most approval rounds a definition can use: round k reads the variables {@code approversK} / {@code hasApproversK}. */
+    int MAX_ROUNDS = 5;
+
     /**
      * Start a process instance for a newly created approval instance.
      *
@@ -24,7 +27,8 @@ public interface WorkflowEnginePort {
      * @param definitionKey     published template key to run
      * @param definitionVersion pinned definition version
      * @param variables         form / rule variables snapshot
-     * @param approvers         resolved first-round approvers (empty = nobody resolved, manual handling)
+     * @param rounds            the resolved approval chain: round 1, round 2, ... (empty = nobody resolved,
+     *                          manual handling). At most {@code MAX_ROUNDS}; the adapter drops empty rounds.
      * @return the tasks the engine opened, and the outcome if it already finished
      */
     WorkflowStep start(
@@ -33,7 +37,7 @@ public interface WorkflowEnginePort {
             String definitionKey,
             Integer definitionVersion,
             Map<String, Object> variables,
-            List<CandidateApprover> approvers);
+            List<List<CandidateApprover>> rounds);
 
     /**
      * Complete one engine user task with a decision, advancing the run.
@@ -48,6 +52,35 @@ public interface WorkflowEnginePort {
      * @throws IllegalStateException if the task is not active for the instance
      */
     WorkflowStep completeTask(TenantId tenantId, String instanceId, String taskRef, WorkflowOutcome decision);
+
+    /**
+     * Hand an open engine task to another user, without completing it.
+     *
+     * @param taskRef  the {@link WorkflowTask#ref()} of the task
+     * @param assignee the new assignee ({@code USER})
+     * @throws IllegalStateException if the task is not active for the instance
+     */
+    void reassign(TenantId tenantId, String instanceId, String taskRef, CandidateApprover assignee);
+
+    /**
+     * Add one more approver to the approval round the task belongs to (parallel add-sign): the round now also
+     * needs the new approver's approval before it can complete.
+     *
+     * @return the task opened for the new approver
+     * @throws IllegalStateException if the task is not active for the instance, or its step cannot take more
+     *         approvers (e.g. a manual-review task)
+     */
+    WorkflowStep addApprover(TenantId tenantId, String instanceId, String taskRef, CandidateApprover approver);
+
+    /**
+     * Send the run back to the previous approval round: the task's round ends without a decision (the other
+     * tasks of the round are removed), and the previous round opens again for its approvers.
+     *
+     * @return the tasks the previous round opened again
+     * @throws IllegalStateException if there is no earlier round, or the definition does not route a return
+     *         (nothing is changed in that case)
+     */
+    WorkflowStep returnToPreviousRound(TenantId tenantId, String instanceId, String taskRef);
 
     /**
      * Terminate a running process instance, removing its remaining active tasks and stopping the

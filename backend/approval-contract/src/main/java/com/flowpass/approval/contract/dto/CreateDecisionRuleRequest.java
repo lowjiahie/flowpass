@@ -20,6 +20,8 @@ import java.util.Map;
  * @param amountMin    optional inclusive lower bound on the {@code amount} variable
  * @param amountMax    optional exclusive upper bound on the {@code amount} variable
  * @param fieldMatches optional variable field constraints ({@code field -> expected value})
+ * @param expression   optional condition in the safe rule-expression language, e.g.
+ *                     {@code amount > 1000 && department in ['IT', 'HR']}; combined with the others by AND
  * @param approvers    first-round approvers when this rule matches (at least one)
  */
 public record CreateDecisionRuleRequest(
@@ -28,6 +30,7 @@ public record CreateDecisionRuleRequest(
         BigDecimal amountMin,
         BigDecimal amountMax,
         Map<String, String> fieldMatches,
+        @Size(max = 500) String expression,
         @NotEmpty List<ApproverDTO> approvers) implements Serializable {
 
     private static final long serialVersionUID = 1L;

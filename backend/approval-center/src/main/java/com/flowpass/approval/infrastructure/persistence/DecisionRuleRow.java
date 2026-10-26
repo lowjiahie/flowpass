@@ -15,6 +15,7 @@ public class DecisionRuleRow {
     private BigDecimal amountMin;
     private BigDecimal amountMax;
     private String fieldMatches;
+    private String conditionExpr;
     private String approvers;
 
     public String getId() {
@@ -79,5 +80,13 @@ public class DecisionRuleRow {
 
     public void setApprovers(String approvers) {
         this.approvers = approvers;
+    }
+
+    public String getConditionExpr() {
+        return conditionExpr;
+    }
+
+    public void setConditionExpr(String conditionExpr) {
+        this.conditionExpr = conditionExpr;
     }
 }

@@ -38,11 +38,13 @@ public class MatrixCandidateResolverAdapter implements CandidateResolverPort {
                                       Map<String, Object> variables) {
         return ApprovalMatrix.select(ruleRepository.findByTemplate(tenantId, templateKey), variables)
                 .map(rule -> {
-                    ApproverResolver.Resolution resolution = ApproverResolver.resolve(
-                            tenantId, rule.approvers(), initiator, variables, orgDirectory);
-                    return new ApproverResolution(
-                            resolution.approvers().stream()
-                                    .map(approver -> new CandidateApprover(approver.type(), approver.id()))
+                    ApproverResolver.Resolution resolution = ApproverResolver.resolveRounds(
+                            tenantId, rule.rounds(), initiator, variables, orgDirectory);
+                    return ApproverResolution.ofRounds(
+                            resolution.rounds().stream()
+                                    .map(round -> round.stream()
+                                            .map(approver -> new CandidateApprover(approver.type(), approver.id()))
+                                            .toList())
                                     .toList(),
                             resolution.problems());
                 })

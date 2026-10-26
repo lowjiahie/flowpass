@@ -123,12 +123,12 @@ class ApproverResolverTest {
     }
 
     @Test
-    void anInitiatorWhoIsTheirOwnManagerIsDroppedAndNobodyIsLeft() {
+    void anInitiatorWhoIsTheirOwnManagerIsAReportingLoopNotASilentSkip() {
         var result = resolve(List.of(entry("INITIATOR_MANAGER", "initiator")), Map.of(),
                 directory(Map.of("u_1", "u_1"), Map.of()));
 
         assertThat(result.approvers()).isEmpty();
-        assertThat(result.problems()).as("not a failure: it simply routes to manual handling").isEmpty();
+        assertThat(result.problems()).containsExactly("the reporting line of u_1 loops back to u_1");
     }
 
     @Test
@@ -145,5 +145,123 @@ class ApproverResolverTest {
         var result = resolve(List.of(entry("ROLE", "finance")), Map.of(), directory(Map.of(), Map.of()));
 
         assertThat(result.approvers()).containsExactly(entry("ROLE", "finance"));
+    }
+
+    // ---- rounds ----------------------------------------------------------------------------------------
+
+    private ApproverResolver.Resolution chain(List<List<ApproverRef>> rounds, OrgDirectory directory) {
+        return ApproverResolver.resolveRounds(tenant, rounds, initiator, Map.of("reviewer", "u_rev"), directory);
+    }
+
+    @Test
+    void eachRoundIsResolvedAndTheOrderOfRoundsIsKept() {
+        var result = chain(List.of(
+                List.of(entry("INITIATOR_MANAGER", "initiator")),
+                List.of(entry("ROLE", "finance"), entry("FORM_FIELD", "reviewer")),
+                List.of(entry("USER", "u_cfo"))), directory(Map.of("u_1", "u_boss"), Map.of()));
+
+        assertThat(result.rounds()).containsExactly(
+                List.of(entry("USER", "u_boss")),
+                List.of(entry("ROLE", "finance"), entry("USER", "u_rev")),
+                List.of(entry("USER", "u_cfo")));
+        assertThat(result.approvers()).hasSize(4);
+    }
+
+    @Test
+    void aProblemInAnyRoundFailsTheWholeChain() {
+        var result = chain(List.of(List.of(entry("USER", "u_a")), List.of(entry("DEPARTMENT_HEAD", "initiator"))),
+                directory(Map.of(), Map.of()));
+
+        assertThat(result.rounds()).isEmpty();
+        assertThat(result.problems()).containsExactly("no department head recorded for u_1");
+    }
+
+    @Test
+    void aPersonWhoAlreadyApprovedInAnEarlierRoundIsNotAskedAgain() {
+        var result = chain(List.of(List.of(entry("USER", "u_a"), entry("USER", "u_b")),
+                List.of(entry("USER", "u_b"), entry("USER", "u_c"))), directory(Map.of(), Map.of()));
+
+        assertThat(result.rounds()).containsExactly(
+                List.of(entry("USER", "u_a"), entry("USER", "u_b")), List.of(entry("USER", "u_c")));
+    }
+
+    @Test
+    void aRoundLeftEmptyIsRemovedAndLaterRoundsMoveUp() {
+        // Round 1 is only the initiator, who never approves their own request: round 2 becomes round 1.
+        var result = chain(List.of(List.of(entry("USER", "u_1")), List.of(entry("USER", "u_a"))),
+                directory(Map.of(), Map.of()));
+
+        assertThat(result.rounds()).containsExactly(List.of(entry("USER", "u_a")));
+    }
+
+    @Test
+    void theInitiatorIsRemovedFromEveryRound() {
+        var result = chain(List.of(List.of(entry("USER", "u_a")), List.of(entry("USER", "u_1"), entry("USER", "u_b"))),
+                directory(Map.of(), Map.of()));
+
+        assertThat(result.rounds()).containsExactly(List.of(entry("USER", "u_a")), List.of(entry("USER", "u_b")));
+    }
+
+    @Test
+    void ifEveryRoundEmptiesOutThereIsNoChainAndNoProblem() {
+        var result = chain(List.of(List.of(entry("USER", "u_1"))), directory(Map.of(), Map.of()));
+
+        assertThat(result.rounds()).isEmpty();
+        assertThat(result.complete()).isTrue();
+    }
+
+    // ---- manager levels --------------------------------------------------------------------------------
+
+    @Test
+    void theManagerNLevelsUpIsReachedByANumberedEntry() {
+        OrgDirectory line = directory(Map.of("u_1", "u_boss", "u_boss", "u_director", "u_director", "u_vp"), Map.of());
+
+        assertThat(resolve(List.of(entry("INITIATOR_MANAGER", "initiator")), Map.of(), line).approvers())
+                .containsExactly(entry("USER", "u_boss"));
+        assertThat(resolve(List.of(entry("INITIATOR_MANAGER", "1")), Map.of(), line).approvers())
+                .containsExactly(entry("USER", "u_boss"));
+        assertThat(resolve(List.of(entry("INITIATOR_MANAGER", "2")), Map.of(), line).approvers())
+                .containsExactly(entry("USER", "u_director"));
+        assertThat(resolve(List.of(entry("INITIATOR_MANAGER", "3")), Map.of(), line).approvers())
+                .containsExactly(entry("USER", "u_vp"));
+    }
+
+    @Test
+    void aReportingLineThatEndsBeforeTheRequestedLevelIsAProblem() {
+        OrgDirectory line = directory(Map.of("u_1", "u_boss"), Map.of());
+
+        var result = resolve(List.of(entry("INITIATOR_MANAGER", "2")), Map.of(), line);
+
+        assertThat(result.approvers()).isEmpty();
+        assertThat(result.problems()).containsExactly("the reporting line of u_1 ends at u_boss before level 2");
+    }
+
+    @Test
+    void aReportingLoopIsAProblemNotAnEndlessWalk() {
+        OrgDirectory loop = directory(Map.of("u_1", "u_a", "u_a", "u_b", "u_b", "u_a"), Map.of());
+
+        var result = resolve(List.of(entry("INITIATOR_MANAGER", "5")), Map.of(), loop);
+
+        assertThat(result.problems()).hasSize(1).first().asString().contains("loops back");
+    }
+
+    @Test
+    void aLevelOutsideOneToFiveIsRefused() {
+        OrgDirectory line = directory(Map.of("u_1", "u_a"), Map.of());
+
+        assertThat(resolve(List.of(entry("INITIATOR_MANAGER", "0")), Map.of(), line).problems())
+                .singleElement().asString().contains("between 1 and 5");
+        assertThat(resolve(List.of(entry("INITIATOR_MANAGER", "6")), Map.of(), line).problems())
+                .singleElement().asString().contains("between 1 and 5");
+        assertThat(resolve(List.of(entry("INITIATOR_MANAGER", "99999")), Map.of(), line).problems()).hasSize(1);
+    }
+
+    @Test
+    void theManagerChainCanFeedSuccessiveRounds() {
+        OrgDirectory line = directory(Map.of("u_1", "u_boss", "u_boss", "u_director"), Map.of());
+
+        var result = chain(List.of(List.of(entry("INITIATOR_MANAGER", "1")), List.of(entry("INITIATOR_MANAGER", "2"))), line);
+
+        assertThat(result.rounds()).containsExactly(List.of(entry("USER", "u_boss")), List.of(entry("USER", "u_director")));
     }
 }

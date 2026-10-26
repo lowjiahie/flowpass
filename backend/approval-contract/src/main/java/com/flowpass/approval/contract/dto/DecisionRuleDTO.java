@@ -14,6 +14,7 @@ import java.util.Map;
  * @param amountMin    optional inclusive lower bound on the {@code amount} variable
  * @param amountMax    optional exclusive upper bound on the {@code amount} variable
  * @param fieldMatches variable field constraints ({@code field -> expected value})
+ * @param expression   optional condition expression over the variables, or null
  * @param approvers    resolved first-round approvers when this rule matches
  */
 public record DecisionRuleDTO(
@@ -23,6 +24,7 @@ public record DecisionRuleDTO(
         BigDecimal amountMin,
         BigDecimal amountMax,
         Map<String, String> fieldMatches,
+        String expression,
         List<ApproverDTO> approvers) implements Serializable {
 
     private static final long serialVersionUID = 1L;

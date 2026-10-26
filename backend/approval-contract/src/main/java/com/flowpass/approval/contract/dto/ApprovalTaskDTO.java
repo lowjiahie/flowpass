@@ -15,6 +15,7 @@ import java.io.Serializable;
  * @param assigneeId   acting assignee id (null when unassigned)
  * @param status       current public task status
  * @param version      optimistic-lock version
+ * @param dueAt        when the task is due (UTC, ISO-8601), or null when its template has no SLA
  */
 public record ApprovalTaskDTO(
         String id,
@@ -23,7 +24,14 @@ public record ApprovalTaskDTO(
         String assigneeType,
         String assigneeId,
         String status,
-        long version) implements Serializable {
+        long version,
+        String dueAt) implements Serializable {
+
+    /** A task without a deadline. */
+    public ApprovalTaskDTO(String id, String instanceId, String name, String assigneeType, String assigneeId,
+                           String status, long version) {
+        this(id, instanceId, name, assigneeType, assigneeId, status, version, null);
+    }
 
     private static final long serialVersionUID = 1L;
 }

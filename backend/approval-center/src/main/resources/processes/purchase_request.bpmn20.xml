@@ -10,9 +10,13 @@
 
   <!--
     Process variables set by the engine adapter at start (see FlowableWorkflowEngineAdapter):
-      approvers     list of "TYPE:id" strings — the resolved first-round approvers
-      hasApprovers  false when the decision matrix resolved nobody
-      rejected      false at start; set to true when an approver rejects
+      approvers, approvers2 .. approvers5        list of "TYPE:id" strings — the resolved approvers of round 1..5
+      hasApprovers, hasApprovers2 .. hasApprovers5   false when that round has nobody (round 1: nobody resolved at all)
+      rejected                                   false at start; set to true when an approver rejects
+      returned                                   false at start; briefly true when an approver sends the request back
+                                                 to the previous round (the round ends at once; round 2 / 3 route back)
+    A round's approvers act in parallel and all must approve; the next round only opens once the previous one is
+    done. A round with nobody is skipped. A rejection in any round ends the run at once.
     End events carry the outcome: the adapter reads which end event the run reached
     (endApproved / endRejected), so the application never infers it. A withdrawal is not modelled:
     the adapter deletes the run, which is the platform's WITHDRAWN state.
@@ -30,22 +34,70 @@
     <userTask id="manualReview" name="Manual review (no approver resolved)"/>
     <sequenceFlow id="flow_manual_to_approved" sourceRef="manualReview" targetRef="endApproved"/>
 
-    <!-- One engine task per approver. Done when everyone approved, or as soon as anyone rejects
+    <!-- Round 1: one engine task per approver; done when everyone approved, or as soon as anyone rejects
          (the remaining tasks are then removed by the engine). -->
     <userTask id="approveTask" name="Approve (first round)" flowable:assignee="${approver}">
       <multiInstanceLoopCharacteristics isSequential="false"
                                         flowable:collection="approvers"
                                         flowable:elementVariable="approver">
-        <completionCondition>${rejected || nrOfCompletedInstances == nrOfInstances}</completionCondition>
+        <completionCondition>${rejected || returned || nrOfCompletedInstances == nrOfInstances}</completionCondition>
       </multiInstanceLoopCharacteristics>
     </userTask>
     <sequenceFlow id="flow_approve_to_decision" sourceRef="approveTask" targetRef="decisionGateway"/>
 
-    <exclusiveGateway id="decisionGateway" name="Rejected?" default="flow_to_approved"/>
+    <exclusiveGateway id="decisionGateway" name="Rejected?" default="flow_to_round2"/>
     <sequenceFlow id="flow_to_rejected" sourceRef="decisionGateway" targetRef="endRejected">
       <conditionExpression xsi:type="tFormalExpression">${rejected}</conditionExpression>
     </sequenceFlow>
-    <sequenceFlow id="flow_to_approved" sourceRef="decisionGateway" targetRef="endApproved"/>
+    <sequenceFlow id="flow_to_round2" sourceRef="decisionGateway" targetRef="round2Gateway"/>
+
+    <!-- Round 2 (skipped when it has nobody) -->
+    <exclusiveGateway id="round2Gateway" name="Second round?" default="flow_round2_skip"/>
+    <sequenceFlow id="flow_round2_open" sourceRef="round2Gateway" targetRef="approveTask2">
+      <conditionExpression xsi:type="tFormalExpression">${hasApprovers2}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flow_round2_skip" sourceRef="round2Gateway" targetRef="endApproved"/>
+    <userTask id="approveTask2" name="Approve (second round)" flowable:assignee="${approver}">
+      <multiInstanceLoopCharacteristics isSequential="false"
+                                        flowable:collection="approvers2"
+                                        flowable:elementVariable="approver">
+        <completionCondition>${rejected || returned || nrOfCompletedInstances == nrOfInstances}</completionCondition>
+      </multiInstanceLoopCharacteristics>
+    </userTask>
+    <sequenceFlow id="flow_approve2_to_decision" sourceRef="approveTask2" targetRef="decisionGateway2"/>
+
+    <exclusiveGateway id="decisionGateway2" name="Rejected?" default="flow_to_round3"/>
+    <sequenceFlow id="flow_to_rejected2" sourceRef="decisionGateway2" targetRef="endRejected">
+      <conditionExpression xsi:type="tFormalExpression">${rejected}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flow_return_to_round1" sourceRef="decisionGateway2" targetRef="approveTask">
+      <conditionExpression xsi:type="tFormalExpression">${returned}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flow_to_round3" sourceRef="decisionGateway2" targetRef="round3Gateway"/>
+
+    <!-- Round 3 (skipped when it has nobody) -->
+    <exclusiveGateway id="round3Gateway" name="Third round?" default="flow_round3_skip"/>
+    <sequenceFlow id="flow_round3_open" sourceRef="round3Gateway" targetRef="approveTask3">
+      <conditionExpression xsi:type="tFormalExpression">${hasApprovers3}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flow_round3_skip" sourceRef="round3Gateway" targetRef="endApproved"/>
+    <userTask id="approveTask3" name="Approve (third round)" flowable:assignee="${approver}">
+      <multiInstanceLoopCharacteristics isSequential="false"
+                                        flowable:collection="approvers3"
+                                        flowable:elementVariable="approver">
+        <completionCondition>${rejected || returned || nrOfCompletedInstances == nrOfInstances}</completionCondition>
+      </multiInstanceLoopCharacteristics>
+    </userTask>
+    <sequenceFlow id="flow_approve3_to_decision" sourceRef="approveTask3" targetRef="decisionGateway3"/>
+
+    <exclusiveGateway id="decisionGateway3" name="Rejected?" default="flow_to_approved"/>
+    <sequenceFlow id="flow_to_rejected3" sourceRef="decisionGateway3" targetRef="endRejected">
+      <conditionExpression xsi:type="tFormalExpression">${rejected}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flow_return_to_round2" sourceRef="decisionGateway3" targetRef="approveTask2">
+      <conditionExpression xsi:type="tFormalExpression">${returned}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flow_to_approved" sourceRef="decisionGateway3" targetRef="endApproved"/>
 
     <endEvent id="endApproved" name="Approved"/>
     <endEvent id="endRejected" name="Rejected"/>
@@ -54,56 +106,132 @@
   <bpmndi:BPMNDiagram id="Diagram_purchase_request">
     <bpmndi:BPMNPlane id="Plane_purchase_request" bpmnElement="purchase_request">
       <bpmndi:BPMNShape id="Shape_start" bpmnElement="start">
-        <dc:Bounds x="100" y="140" width="36" height="36"/>
+        <dc:Bounds x="100" y="240" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_hasApproversGateway" bpmnElement="hasApproversGateway" isMarkerVisible="true">
-        <dc:Bounds x="190" y="133" width="50" height="50"/>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_approveTask" bpmnElement="approveTask">
-        <dc:Bounds x="300" y="118" width="100" height="80"/>
+        <dc:Bounds x="190" y="233" width="50" height="50"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_manualReview" bpmnElement="manualReview">
-        <dc:Bounds x="300" y="260" width="100" height="80"/>
+        <dc:Bounds x="290" y="380" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_approveTask" bpmnElement="approveTask">
+        <dc:Bounds x="290" y="218" width="100" height="80"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_decisionGateway" bpmnElement="decisionGateway" isMarkerVisible="true">
-        <dc:Bounds x="460" y="133" width="50" height="50"/>
+        <dc:Bounds x="440" y="233" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_round2Gateway" bpmnElement="round2Gateway" isMarkerVisible="true">
+        <dc:Bounds x="540" y="233" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_approveTask2" bpmnElement="approveTask2">
+        <dc:Bounds x="640" y="218" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_decisionGateway2" bpmnElement="decisionGateway2" isMarkerVisible="true">
+        <dc:Bounds x="790" y="233" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_round3Gateway" bpmnElement="round3Gateway" isMarkerVisible="true">
+        <dc:Bounds x="890" y="233" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_approveTask3" bpmnElement="approveTask3">
+        <dc:Bounds x="990" y="218" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_decisionGateway3" bpmnElement="decisionGateway3" isMarkerVisible="true">
+        <dc:Bounds x="1140" y="233" width="50" height="50"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_endApproved" bpmnElement="endApproved">
-        <dc:Bounds x="570" y="140" width="36" height="36"/>
+        <dc:Bounds x="1250" y="240" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_endRejected" bpmnElement="endRejected">
-        <dc:Bounds x="570" y="40" width="36" height="36"/>
+        <dc:Bounds x="1250" y="100" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Edge_start" bpmnElement="flow_start_to_gateway">
-        <di:waypoint x="136" y="158"/>
-        <di:waypoint x="190" y="158"/>
+        <di:waypoint x="136" y="258"/>
+        <di:waypoint x="190" y="258"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_to_approve" bpmnElement="flow_to_approve">
-        <di:waypoint x="240" y="158"/>
-        <di:waypoint x="300" y="158"/>
+        <di:waypoint x="240" y="258"/>
+        <di:waypoint x="290" y="258"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_to_manual" bpmnElement="flow_to_manual">
-        <di:waypoint x="215" y="183"/>
-        <di:waypoint x="215" y="300"/>
-        <di:waypoint x="300" y="300"/>
+        <di:waypoint x="215" y="283"/>
+        <di:waypoint x="215" y="420"/>
+        <di:waypoint x="290" y="420"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_manual_to_approved" bpmnElement="flow_manual_to_approved">
-        <di:waypoint x="400" y="300"/>
-        <di:waypoint x="588" y="300"/>
-        <di:waypoint x="588" y="176"/>
+        <di:waypoint x="390" y="420"/>
+        <di:waypoint x="1268" y="420"/>
+        <di:waypoint x="1268" y="276"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_approve_to_decision" bpmnElement="flow_approve_to_decision">
-        <di:waypoint x="400" y="158"/>
-        <di:waypoint x="460" y="158"/>
+        <di:waypoint x="390" y="258"/>
+        <di:waypoint x="440" y="258"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_to_rejected" bpmnElement="flow_to_rejected">
-        <di:waypoint x="485" y="133"/>
-        <di:waypoint x="485" y="58"/>
-        <di:waypoint x="570" y="58"/>
+        <di:waypoint x="465" y="233"/>
+        <di:waypoint x="465" y="118"/>
+        <di:waypoint x="1250" y="118"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_to_round2" bpmnElement="flow_to_round2">
+        <di:waypoint x="490" y="258"/>
+        <di:waypoint x="540" y="258"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_round2_open" bpmnElement="flow_round2_open">
+        <di:waypoint x="590" y="258"/>
+        <di:waypoint x="640" y="258"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_round2_skip" bpmnElement="flow_round2_skip">
+        <di:waypoint x="565" y="283"/>
+        <di:waypoint x="565" y="350"/>
+        <di:waypoint x="1260" y="350"/>
+        <di:waypoint x="1260" y="276"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_approve2_to_decision" bpmnElement="flow_approve2_to_decision">
+        <di:waypoint x="740" y="258"/>
+        <di:waypoint x="790" y="258"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_to_rejected2" bpmnElement="flow_to_rejected2">
+        <di:waypoint x="815" y="233"/>
+        <di:waypoint x="815" y="118"/>
+        <di:waypoint x="1250" y="118"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_return_to_round1" bpmnElement="flow_return_to_round1">
+        <di:waypoint x="815" y="283"/>
+        <di:waypoint x="815" y="320"/>
+        <di:waypoint x="340" y="320"/>
+        <di:waypoint x="340" y="298"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_to_round3" bpmnElement="flow_to_round3">
+        <di:waypoint x="840" y="258"/>
+        <di:waypoint x="890" y="258"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_round3_open" bpmnElement="flow_round3_open">
+        <di:waypoint x="940" y="258"/>
+        <di:waypoint x="990" y="258"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_round3_skip" bpmnElement="flow_round3_skip">
+        <di:waypoint x="915" y="283"/>
+        <di:waypoint x="915" y="340"/>
+        <di:waypoint x="1264" y="340"/>
+        <di:waypoint x="1264" y="276"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_approve3_to_decision" bpmnElement="flow_approve3_to_decision">
+        <di:waypoint x="1090" y="258"/>
+        <di:waypoint x="1140" y="258"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_to_rejected3" bpmnElement="flow_to_rejected3">
+        <di:waypoint x="1165" y="233"/>
+        <di:waypoint x="1165" y="118"/>
+        <di:waypoint x="1250" y="118"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_return_to_round2" bpmnElement="flow_return_to_round2">
+        <di:waypoint x="1165" y="283"/>
+        <di:waypoint x="1165" y="310"/>
+        <di:waypoint x="690" y="310"/>
+        <di:waypoint x="690" y="298"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_to_approved" bpmnElement="flow_to_approved">
-        <di:waypoint x="510" y="158"/>
-        <di:waypoint x="570" y="158"/>
+        <di:waypoint x="1190" y="258"/>
+        <di:waypoint x="1250" y="258"/>
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

@@ -8,6 +8,7 @@ import com.flowpass.approval.application.query.ListDecisionRulesHandler;
 import com.flowpass.approval.application.query.ListDecisionRulesQuery;
 import com.flowpass.approval.application.query.PreviewApproversHandler;
 import com.flowpass.approval.application.query.PreviewApproversQuery;
+import com.flowpass.approval.contract.dto.ApproverDTO;
 import com.flowpass.approval.contract.dto.ApproverPreviewDTO;
 import com.flowpass.approval.contract.dto.CreateDecisionRuleRequest;
 import com.flowpass.approval.contract.dto.DecisionRuleDTO;
@@ -67,7 +68,9 @@ public class DecisionRuleAdminController {
                 body.amountMin(),
                 body.amountMax(),
                 body.fieldMatches(),
-                body.approvers().stream().map(a -> new ApproverRef(a.type(), a.id())).toList());
+                body.expression(),
+                body.approvers().stream().map(a -> new ApproverRef(a.type(), a.id())).toList(),
+                body.approvers().stream().map(ApproverDTO::round).toList());
         return createHandler.handle(cmd);
     }
 

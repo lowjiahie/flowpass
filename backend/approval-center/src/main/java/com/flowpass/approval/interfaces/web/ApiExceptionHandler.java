@@ -31,7 +31,7 @@ public class ApiExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public ProblemDetail handleBusiness(BusinessException ex) {
         HttpStatus status = switch (ex.code()) {
-            case INSTANCE_NOT_FOUND, TASK_NOT_FOUND, TEMPLATE_NOT_FOUND -> HttpStatus.NOT_FOUND;
+            case INSTANCE_NOT_FOUND, TASK_NOT_FOUND, TEMPLATE_NOT_FOUND, DELEGATION_NOT_FOUND -> HttpStatus.NOT_FOUND;
             case UNAUTHENTICATED -> HttpStatus.UNAUTHORIZED;
             case FORBIDDEN -> HttpStatus.FORBIDDEN;
             case CONFLICT, IDEMPOTENCY_CONFLICT -> HttpStatus.CONFLICT;

@@ -6,6 +6,7 @@ import com.flowpass.approval.domain.decision.DecisionRule;
 import com.flowpass.approval.domain.decision.DecisionRuleRepository;
 import com.flowpass.approval.domain.decision.RuleCondition;
 import com.flowpass.approval.application.common.Permissions;
+import com.flowpass.approval.application.common.RuleApproverDtos;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,8 +45,7 @@ public class ListDecisionRulesHandler {
                 condition.amountMin(),
                 condition.amountMax(),
                 condition.fieldMatches(),
-                rule.approvers().stream()
-                        .map(a -> new ApproverDTO(a.type(), a.id()))
-                        .toList());
+                condition.expression() == null ? null : condition.expression().source(),
+                RuleApproverDtos.of(rule));
     }
 }

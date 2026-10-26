@@ -1,8 +1,14 @@
 package com.flowpass.approval.infrastructure.persistence;
 
+import java.time.Instant;
+
 /** DB row for {@code approval_task}. Maps 1:1 to the mapper insert. */
 public class ApprovalTaskRow {
 
+    private Instant dueAt;
+    private Instant remindAt;
+    private Instant remindedAt;
+    private Instant overdueHandledAt;
     private String id;
     private String tenantId;
     private String instanceId;
@@ -92,5 +98,37 @@ public class ApprovalTaskRow {
 
     public void setWorkflowTaskRef(String workflowTaskRef) {
         this.workflowTaskRef = workflowTaskRef;
+    }
+
+    public Instant getDueAt() {
+        return dueAt;
+    }
+
+    public void setDueAt(Instant dueAt) {
+        this.dueAt = dueAt;
+    }
+
+    public Instant getRemindAt() {
+        return remindAt;
+    }
+
+    public void setRemindAt(Instant remindAt) {
+        this.remindAt = remindAt;
+    }
+
+    public Instant getRemindedAt() {
+        return remindedAt;
+    }
+
+    public void setRemindedAt(Instant remindedAt) {
+        this.remindedAt = remindedAt;
+    }
+
+    public Instant getOverdueHandledAt() {
+        return overdueHandledAt;
+    }
+
+    public void setOverdueHandledAt(Instant overdueHandledAt) {
+        this.overdueHandledAt = overdueHandledAt;
     }
 }

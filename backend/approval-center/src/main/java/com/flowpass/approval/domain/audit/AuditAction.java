@@ -11,5 +11,11 @@ public enum AuditAction {
     STARTED,
     APPROVED,
     REJECTED,
-    WITHDRAWN
+    WITHDRAWN,
+    TRANSFERRED,
+    APPROVER_ADDED,
+    RETURNED,
+    DELEGATED,
+    OVERDUE,
+    ESCALATED
 }

@@ -10,6 +10,7 @@ import com.flowpass.approval.application.port.WorkflowTask;
 import com.flowpass.approval.domain.common.TenantId;
 import com.flowpass.approval.domain.definition.DefinitionRepository;
 import com.flowpass.approval.infrastructure.persistence.WorkflowRefRow;
+import org.flowable.common.engine.api.FlowableException;
 import org.flowable.common.engine.api.FlowableOptimisticLockingException;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.RepositoryService;
@@ -49,6 +50,7 @@ public class FlowableWorkflowEngineAdapter implements WorkflowEnginePort {
     static final String VAR_APPROVERS = "approvers";
     static final String VAR_HAS_APPROVERS = "hasApprovers";
     static final String VAR_REJECTED = "rejected";
+    static final String VAR_RETURNED = "returned";
     static final String END_REJECTED = "endRejected";
     static final String END_APPROVED = "endApproved";
     private static final String ASSIGNEE_SEPARATOR = ":";
@@ -78,15 +80,25 @@ public class FlowableWorkflowEngineAdapter implements WorkflowEnginePort {
     @Override
     public WorkflowStep start(TenantId tenantId, String instanceId, String definitionKey,
                               Integer definitionVersion, Map<String, Object> variables,
-                              List<CandidateApprover> approvers) {
+                              List<List<CandidateApprover>> rounds) {
         String processDefinitionId = ensureDeployed(tenantId, definitionKey, definitionVersion);
 
         Map<String, Object> processVariables = new HashMap<>(variables == null ? Map.of() : variables);
         // Engine-owned variables win over same-named form variables.
-        processVariables.put(VAR_APPROVERS, new ArrayList<>(approvers.stream()
-                .map(a -> a.type() + ASSIGNEE_SEPARATOR + a.id()).toList()));
-        processVariables.put(VAR_HAS_APPROVERS, !approvers.isEmpty());
+        // Round k (1-based) is exposed to the definition as `approvers` (k = 1) / `approversK` and `hasApprovers` /
+        // `hasApproversK`; every round up to the maximum is always defined, so expressions never hit an unknown name.
+        List<List<CandidateApprover>> chain = rounds.stream().filter(round -> !round.isEmpty()).toList();
+        if (chain.size() > MAX_ROUNDS) {
+            throw new IllegalArgumentException("an approval chain can have at most " + MAX_ROUNDS + " rounds");
+        }
+        for (int round = 1; round <= MAX_ROUNDS; round++) {
+            List<CandidateApprover> approvers = round <= chain.size() ? chain.get(round - 1) : List.of();
+            processVariables.put(round == 1 ? VAR_APPROVERS : VAR_APPROVERS + round, new ArrayList<>(approvers.stream()
+                    .map(a -> a.type() + ASSIGNEE_SEPARATOR + a.id()).toList()));
+            processVariables.put(round == 1 ? VAR_HAS_APPROVERS : VAR_HAS_APPROVERS + round, !approvers.isEmpty());
+        }
         processVariables.put(VAR_REJECTED, false);
+        processVariables.put(VAR_RETURNED, false);
 
         // Start by definition id, not key: the instance runs exactly the version it is pinned to, even
         // after newer versions of the same key are deployed.
@@ -130,6 +142,96 @@ public class FlowableWorkflowEngineAdapter implements WorkflowEnginePort {
                     "Concurrent workflow step on instance " + instanceId + "; retry");
         }
         return stepAfter(processInstanceId, openBefore);
+    }
+
+    @Override
+    @Transactional
+    public void reassign(TenantId tenantId, String instanceId, String taskRef, CandidateApprover assignee) {
+        String processInstanceId = lockedProcessInstance(tenantId, instanceId);
+        requireActiveTask(processInstanceId, taskRef);
+        taskService.setAssignee(taskRef, assignee.type() + ASSIGNEE_SEPARATOR + assignee.id());
+    }
+
+    @Override
+    @Transactional
+    public WorkflowStep addApprover(TenantId tenantId, String instanceId, String taskRef, CandidateApprover approver) {
+        String processInstanceId = lockedProcessInstance(tenantId, instanceId);
+        Task task = requireActiveTask(processInstanceId, taskRef);
+        Set<String> openBefore = openTaskIds(processInstanceId);
+        try {
+            // A new instance of the same parallel step: the round now also waits for this approver.
+            runtimeService.addMultiInstanceExecution(task.getTaskDefinitionKey(), processInstanceId,
+                    Map.of("approver", approver.type() + ASSIGNEE_SEPARATOR + approver.id()));
+        } catch (FlowableOptimisticLockingException e) {
+            throw new BusinessException(BusinessErrorCode.CONFLICT,
+                    "Concurrent workflow step on instance " + instanceId + "; retry");
+        } catch (FlowableException e) {
+            throw new IllegalStateException("The step '" + task.getTaskDefinitionKey()
+                    + "' cannot take more approvers", e);
+        }
+        return stepAfter(processInstanceId, openBefore);
+    }
+
+    @Override
+    @Transactional
+    public WorkflowStep returnToPreviousRound(TenantId tenantId, String instanceId, String taskRef) {
+        String processInstanceId = lockedProcessInstance(tenantId, instanceId);
+        Task task = requireActiveTask(processInstanceId, taskRef);
+        String currentNode = task.getTaskDefinitionKey();
+
+        // The rounds already gone through: every user-task node finished before, except the one being returned from.
+        Set<String> earlier = new HashSet<>();
+        historyService.createHistoricActivityInstanceQuery().processInstanceId(processInstanceId)
+                .activityType("userTask").finished().list()
+                .forEach(activity -> earlier.add(activity.getActivityId()));
+        earlier.remove(currentNode);
+        if (earlier.isEmpty()) {
+            throw new IllegalStateException("There is no earlier round to return to");
+        }
+
+        Set<String> openBefore = openTaskIds(processInstanceId);
+        try {
+            // Like a rejection, but routed backwards by the definition: the round ends at once and the gateway
+            // sends the run to the previous round, which opens again for its approvers.
+            runtimeService.setVariable(processInstanceId, VAR_RETURNED, true);
+            taskService.complete(taskRef);
+            if (isRunning(processInstanceId)) {
+                runtimeService.setVariable(processInstanceId, VAR_RETURNED, false);
+            }
+        } catch (FlowableOptimisticLockingException e) {
+            throw new BusinessException(BusinessErrorCode.CONFLICT,
+                    "Concurrent workflow step on instance " + instanceId + "; retry");
+        }
+
+        WorkflowStep step = stepAfter(processInstanceId, openBefore);
+        boolean rewound = !step.finished() && !step.newTasks().isEmpty()
+                && step.newTasks().stream().allMatch(t -> earlier.contains(t.nodeKey()));
+        if (!rewound) {
+            // The definition did not route the return backwards: refuse, and undo everything (the caller's
+            // transaction rolls back, including the completion above).
+            throw new IllegalStateException("This definition does not support returning to an earlier round");
+        }
+        return step;
+    }
+
+    private String lockedProcessInstance(TenantId tenantId, String instanceId) {
+        return workflowRefRepository.findByInstanceIdForUpdate(tenantId.value(), instanceId)
+                .orElseThrow(() -> new IllegalStateException("No workflow ref for instance " + instanceId))
+                .getProcessInstanceId();
+    }
+
+    private Task requireActiveTask(String processInstanceId, String taskRef) {
+        Task task = taskService.createTaskQuery().processInstanceId(processInstanceId).taskId(taskRef).singleResult();
+        if (task == null) {
+            throw new IllegalStateException("No active task " + taskRef + " for process instance " + processInstanceId);
+        }
+        return task;
+    }
+
+    private Set<String> openTaskIds(String processInstanceId) {
+        Set<String> ids = new HashSet<>();
+        taskService.createTaskQuery().processInstanceId(processInstanceId).list().forEach(t -> ids.add(t.getId()));
+        return ids;
     }
 
     @Override

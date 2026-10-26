@@ -55,4 +55,33 @@ class RuleConditionTest {
         assertThatThrownBy(() -> RuleCondition.amountBand(new BigDecimal("5000"), new BigDecimal("1000")))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    // ---- expressions ---------------------------------------------------------------------------------
+
+    @Test
+    void anExpressionMustHoldInAdditionToTheBandAndTheFieldMatches() {
+        RuleCondition condition = new RuleCondition(new BigDecimal("1000"), null, Map.of("department", "IT"),
+                RuleExpression.parse("urgent || amount > 5000"));
+
+        assertThat(condition.matches(Map.of("amount", 2000, "department", "IT", "urgent", true))).isTrue();
+        assertThat(condition.matches(Map.of("amount", 2000, "department", "IT", "urgent", false))).isFalse();
+        assertThat(condition.matches(Map.of("amount", 6000, "department", "IT"))).isTrue();
+        assertThat(condition.matches(Map.of("amount", 6000, "department", "HR"))).as("field match still applies").isFalse();
+        assertThat(condition.matches(Map.of("amount", 500, "department", "IT", "urgent", true))).as("band still applies").isFalse();
+    }
+
+    @Test
+    void anExpressionAloneCanBeTheWholeCondition() {
+        RuleCondition condition = new RuleCondition(null, null, null, RuleExpression.parse("region in ['EU', 'UK']"));
+
+        assertThat(condition.matches(Map.of("region", "EU"))).isTrue();
+        assertThat(condition.matches(Map.of("region", "US"))).isFalse();
+        assertThat(condition.matches(Map.of())).isFalse();
+    }
+
+    @Test
+    void aConditionWithAnExpressionIsNotADefaultRule() {
+        assertThat(RuleCondition.any().isDefault()).isTrue();
+        assertThat(new RuleCondition(null, null, null, RuleExpression.parse("urgent")).isDefault()).isFalse();
+    }
 }

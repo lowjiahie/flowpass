@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.flowpass.approval.application.common.FieldViolation;
 import com.flowpass.approval.application.port.FormValidationPort;
+import com.flowpass.approval.domain.decision.RuleExpression;
 import com.networknt.schema.JsonSchema;
 import com.networknt.schema.JsonSchemaFactory;
 import com.networknt.schema.PathType;
@@ -36,6 +37,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *       backtracking on attacker-chosen input would burn a request thread); use {@code format}, {@code enum}
  *       and length / range keywords instead;</li>
  *   <li>bounded — schema size, nesting depth and the size of the input that is validated are capped;</li>
+ *   <li>business rules — an optional {@code x-rules} list of cross-field conditions (see {@link #checkSchema}),
+ *       written in the safe rule-expression language and evaluated only once the types are right;</li>
  *   <li>well-formed — it must itself validate against its meta-schema, describe an object at the root, and
  *       {@code format} is enforced (not merely annotated).</li>
  * </ul>
@@ -49,6 +52,8 @@ public class JsonSchemaFormValidator implements FormValidationPort {
     static final int MAX_DEPTH = 24;
     static final int MAX_VIOLATIONS = 50;
     private static final int MAX_CACHED_SCHEMAS = 256;
+    private static final int MAX_BUSINESS_RULES = 20;
+    static final String RULES_KEYWORD = "x-rules";
 
     private static final String DIALECT_2020_12 = "https://json-schema.org/draft/2020-12/schema";
     private static final Set<String> DIALECTS_7 = Set.of("http://json-schema.org/draft-07/schema#",
@@ -96,6 +101,7 @@ public class JsonSchemaFormValidator implements FormValidationPort {
         }
         JsonSchemaFactory factory = factoryFor(node);
         walk(node, node, 0);
+        checkBusinessRules(node);
         try {
             // It must itself be a valid schema of its dialect...
             String dialect = node.has("$schema") ? node.get("$schema").asText() : DIALECT_2020_12;
@@ -126,11 +132,75 @@ public class JsonSchemaFormValidator implements FormValidationPort {
             return List.of(new FieldViolation("", "the input is not valid JSON"));
         }
         Set<ValidationMessage> messages = schemaFor(schemaJson).validate(input);
-        return messages.stream()
+        List<FieldViolation> violations = messages.stream()
                 .map(this::toViolation)
                 .sorted(Comparator.comparing(FieldViolation::field).thenComparing(FieldViolation::message))
                 .limit(MAX_VIOLATIONS)
                 .toList();
+        if (!violations.isEmpty()) {
+            // Cross-field rules assume well-typed fields; report the type problems first.
+            return violations;
+        }
+        return businessRuleViolations(schemaJson, variables == null ? Map.of() : variables);
+    }
+
+    // ---- business rules ("x-rules") -------------------------------------------------------------
+
+    /**
+     * {@code "x-rules": [{"expression": "endDate > startDate", "message": "End date must be after the start date",
+     * "field": "endDate"}]} — each expression must hold for the application to be valid. They are written in the
+     * safe rule-expression language and live inside the schema, so they are versioned and snapshotted with it.
+     */
+    private void checkBusinessRules(JsonNode schema) {
+        JsonNode rules = schema.get(RULES_KEYWORD);
+        if (rules == null) {
+            return;
+        }
+        if (!rules.isArray() || rules.size() > MAX_BUSINESS_RULES) {
+            throw new IllegalArgumentException("'" + RULES_KEYWORD + "' must be a list of at most "
+                    + MAX_BUSINESS_RULES + " rules");
+        }
+        for (JsonNode rule : rules) {
+            if (!rule.isObject() || !rule.path("expression").isTextual() || !rule.path("message").isTextual()
+                    || rule.path("message").asText().isBlank() || rule.path("message").asText().length() > 200) {
+                throw new IllegalArgumentException("each '" + RULES_KEYWORD
+                        + "' entry needs an 'expression' and a 'message' (at most 200 characters)");
+            }
+            if (rule.has("field") && (!rule.get("field").isTextual() || rule.get("field").asText().length() > 100)) {
+                throw new IllegalArgumentException("'field' of a '" + RULES_KEYWORD + "' entry must be short text");
+            }
+            for (Iterator<String> names = rule.fieldNames(); names.hasNext(); ) {
+                String name = names.next();
+                if (!Set.of("expression", "message", "field").contains(name)) {
+                    throw new IllegalArgumentException("unknown '" + name + "' in a '" + RULES_KEYWORD + "' entry");
+                }
+            }
+            try {
+                RuleExpression.parse(rule.get("expression").asText());
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("invalid '" + RULES_KEYWORD + "' expression '"
+                        + rule.get("expression").asText() + "': " + e.getMessage());
+            }
+        }
+    }
+
+    private List<FieldViolation> businessRuleViolations(String schemaJson, Map<String, Object> variables) {
+        JsonNode rules;
+        try {
+            rules = mapper.readTree(schemaJson).get(RULES_KEYWORD);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Stored form schema is not valid JSON", e);
+        }
+        if (rules == null || !rules.isArray()) {
+            return List.of();
+        }
+        java.util.ArrayList<FieldViolation> violations = new java.util.ArrayList<>();
+        for (JsonNode rule : rules) {
+            if (!RuleExpression.parse(rule.get("expression").asText()).matches(variables)) {
+                violations.add(new FieldViolation(rule.path("field").asText(""), rule.get("message").asText()));
+            }
+        }
+        return violations;
     }
 
     // ------------------------------------------------------------------------------------------------

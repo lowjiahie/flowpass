@@ -123,7 +123,6 @@ public class StartApprovalHandler {
         //    not an approval: the engine parks the run for manual handling.
         ApproverResolution resolution = candidateResolver.resolve(cmd.tenantId(), def.templateKey(), initiator,
                 instance.variables());
-        List<CandidateApprover> candidates = resolution.approvers();
         if (resolution.failed()) {
             log.warn("Instance {} (tenant {}): approver resolution failed, routed to manual review: {}",
                     instance.id().value(), cmd.tenantId().value(), resolution.problems());
@@ -137,7 +136,7 @@ public class StartApprovalHandler {
                 def.templateKey(),
                 def.definitionVersion(),
                 instance.variables(),
-                candidates);
+                resolution.rounds());
         log.debug("Started workflow for instance {}: {} task(s) opened", instance.id().value(),
                 step.newTasks().size());
         taskMaterializer.materialize(instance.tenantId(), instance.id().value(), step.newTasks());
@@ -216,7 +215,7 @@ public class StartApprovalHandler {
         if (amount != null) {
             BigDecimal value = numeric(amount);
             if (value == null) {
-                violations.add(new FieldViolation("amount", "must be a number"));
+                violations.add(new FieldViolation("amount", "must be a number (not text)"));
             } else {
                 if (value.signum() < 0) {
                     violations.add(new FieldViolation("amount", "must not be negative"));
@@ -235,16 +234,22 @@ public class StartApprovalHandler {
         return violations;
     }
 
-    /** The value as a number, or null when it is not one (numbers and numeric strings are accepted). */
+    /**
+     * The value as a number, or null when it is not one. Only a JSON number counts: a numeric string is not an
+     * amount, so that every rule — band, field match or expression — sees the same value.
+     */
     private BigDecimal numeric(Object value) {
-        if (value instanceof Boolean) {
-            return null;
+        if (value instanceof BigDecimal decimal) {
+            return decimal;
         }
-        try {
-            return value instanceof BigDecimal decimal ? decimal : new BigDecimal(value.toString().trim());
-        } catch (NumberFormatException e) {
-            return null;
+        if (value instanceof Number number) {
+            try {
+                return new BigDecimal(number.toString());
+            } catch (NumberFormatException e) {
+                return null;
+            }
         }
+        return null;
     }
 
     private Money resolveMoney(Map<String, Object> variables) {

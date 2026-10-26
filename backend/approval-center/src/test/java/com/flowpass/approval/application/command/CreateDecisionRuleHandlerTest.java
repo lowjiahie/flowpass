@@ -88,4 +88,93 @@ class CreateDecisionRuleHandlerTest {
                 .satisfies(ex -> assertThat(((BusinessException) ex).code())
                         .isEqualTo(BusinessErrorCode.VALIDATION_FAILED));
     }
+
+    @Test
+    void storesAndReturnsTheConditionExpression() {
+        CreateDecisionRuleCommand cmd = new CreateDecisionRuleCommand(
+                tenant, "purchase_request", 10, null, null, null, "  amount > 1000 && department in ['IT','HR']  ",
+                List.of(new ApproverRef("USER", "u_2")));
+
+        DecisionRuleDTO dto = handler().handle(cmd);
+
+        assertThat(dto.expression()).isEqualTo("amount > 1000 && department in ['IT','HR']");
+        ArgumentCaptor<DecisionRule> captor = ArgumentCaptor.forClass(DecisionRule.class);
+        verify(ruleRepository).save(captor.capture());
+        assertThat(captor.getValue().matches(Map.of("amount", 2000, "department", "HR"))).isTrue();
+        assertThat(captor.getValue().matches(Map.of("amount", 2000, "department", "FIN"))).isFalse();
+    }
+
+    @Test
+    void aBlankExpressionMeansNoExpression() {
+        DecisionRuleDTO dto = handler().handle(new CreateDecisionRuleCommand(
+                tenant, "purchase_request", 10, null, null, null, "   ", List.of(new ApproverRef("USER", "u_2"))));
+
+        assertThat(dto.expression()).isNull();
+    }
+
+    @Test
+    void anInvalidExpressionIsAValidationFailureWithTheReasonAndNothingIsSaved() {
+        CreateDecisionRuleCommand cmd = new CreateDecisionRuleCommand(
+                tenant, "purchase_request", 10, null, null, null, "amount = 5", List.of(new ApproverRef("USER", "u_2")));
+
+        assertThatThrownBy(() -> handler().handle(cmd))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        ex -> assertThat(ex.code()).isEqualTo(BusinessErrorCode.VALIDATION_FAILED))
+                .hasMessageContaining("use ==");
+        org.mockito.Mockito.verifyNoInteractions(ruleRepository);
+    }
+
+    @Test
+    void anExpressionThatCallsAMethodIsRefused() {
+        CreateDecisionRuleCommand cmd = new CreateDecisionRuleCommand(
+                tenant, "purchase_request", 10, null, null, null, "runtimeService.deleteProcessInstance('a','b')",
+                List.of(new ApproverRef("USER", "u_2")));
+
+        assertThatThrownBy(() -> handler().handle(cmd))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        ex -> assertThat(ex.code()).isEqualTo(BusinessErrorCode.VALIDATION_FAILED));
+    }
+
+    // ---- rounds ----------------------------------------------------------------------------------------
+
+    @Test
+    void approversAreGroupedIntoRoundsByTheirRoundNumber() {
+        CreateDecisionRuleCommand cmd = new CreateDecisionRuleCommand(
+                tenant, "purchase_request", 10, null, null, null, null,
+                List.of(new ApproverRef("USER", "u_cfo"), new ApproverRef("USER", "u_boss"),
+                        new ApproverRef("ROLE", "finance"), new ApproverRef("USER", "u_other")),
+                java.util.Arrays.asList(3, 1, 2, null));
+
+        DecisionRuleDTO dto = handler().handle(cmd);
+
+        assertThat(dto.approvers()).extracting("id", "round")
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("u_boss", 1), org.assertj.core.groups.Tuple.tuple("u_other", 1),
+                        org.assertj.core.groups.Tuple.tuple("finance", 2), org.assertj.core.groups.Tuple.tuple("u_cfo", 3));
+        ArgumentCaptor<DecisionRule> captor = ArgumentCaptor.forClass(DecisionRule.class);
+        verify(ruleRepository).save(captor.capture());
+        assertThat(captor.getValue().rounds()).hasSize(3);
+    }
+
+    @Test
+    void gapsInRoundNumbersCloseUpSoTheChainHasNoHoles() {
+        DecisionRuleDTO dto = handler().handle(new CreateDecisionRuleCommand(
+                tenant, "purchase_request", 10, null, null, null, null,
+                List.of(new ApproverRef("USER", "u_a"), new ApproverRef("USER", "u_b")), List.of(1, 4)));
+
+        assertThat(dto.approvers()).extracting("round").containsExactly(1, 2);
+    }
+
+    @Test
+    void aRoundOutsideOneToFiveIsAValidationFailure() {
+        for (int bad : new int[] {0, 6, -1}) {
+            CreateDecisionRuleCommand cmd = new CreateDecisionRuleCommand(
+                    tenant, "purchase_request", 10, null, null, null, null,
+                    List.of(new ApproverRef("USER", "u_a")), List.of(bad));
+
+            assertThatThrownBy(() -> handler().handle(cmd))
+                    .isInstanceOfSatisfying(BusinessException.class,
+                            ex -> assertThat(ex.code()).isEqualTo(BusinessErrorCode.VALIDATION_FAILED))
+                    .hasMessageContaining("between 1 and 5");
+        }
+    }
 }

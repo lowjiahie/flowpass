@@ -318,4 +318,129 @@ class JsonSchemaFormValidatorTest {
         assertThatThrownBy(() -> validator.checkSchema(schema(deep.toString())))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("deeper");
     }
+
+    // ---- business rules ("x-rules") --------------------------------------------------------------------
+
+    private static final String LEAVE = """
+            {
+              "type": "object",
+              "required": ["startDate", "days"],
+              "properties": {
+                "startDate": {"type": "string", "format": "date"},
+                "endDate":   {"type": "string", "format": "date"},
+                "days":      {"type": "integer", "minimum": 1},
+                "budget":    {"type": "number"},
+                "total":     {"type": "number"}
+              },
+              "x-rules": [
+                {"expression": "endDate == null || endDate > startDate",
+                 "message": "The end date must be after the start date", "field": "endDate"},
+                {"expression": "total == null || budget == null || total <= budget * 1.1",
+                 "message": "The total may exceed the budget by at most 10%"}
+              ]
+            }
+            """;
+
+    private List<FieldViolation> leave(Map<String, Object> input) {
+        return validator.validate(validator.checkSchema(schema(LEAVE)), input);
+    }
+
+    @Test
+    void aCrossFieldRuleThatHoldsPasses() {
+        assertThat(leave(Map.of("startDate", "2026-03-01", "endDate", "2026-03-05", "days", 4,
+                "budget", 100, "total", 105))).isEmpty();
+    }
+
+    @Test
+    void aCrossFieldRuleThatFailsReportsItsMessageOnItsField() {
+        List<FieldViolation> violations = leave(Map.of("startDate", "2026-03-05", "endDate", "2026-03-01", "days", 4));
+
+        assertThat(violations).containsExactly(
+                new FieldViolation("endDate", "The end date must be after the start date"));
+    }
+
+    @Test
+    void aRuleWithoutAFieldIsReportedOnTheWholeInput() {
+        List<FieldViolation> violations = leave(Map.of("startDate", "2026-03-01", "days", 4, "budget", 100, "total", 200));
+
+        assertThat(violations).containsExactly(
+                new FieldViolation("", "The total may exceed the budget by at most 10%"));
+    }
+
+    @Test
+    void everyFailingRuleIsReportedTogether() {
+        List<FieldViolation> violations = leave(Map.of("startDate", "2026-03-05", "endDate", "2026-03-01", "days", 4,
+                "budget", 100, "total", 200));
+
+        assertThat(violations).hasSize(2);
+    }
+
+    @Test
+    void businessRulesWaitUntilTheTypesAreRight() {
+        // days is text: only the type problem is reported, not rules that would have to guess at it.
+        List<FieldViolation> violations = leave(Map.of("startDate", "2026-03-05", "endDate", "2026-03-01", "days", "four"));
+
+        assertThat(fields(violations)).containsExactly("days");
+    }
+
+    @Test
+    void optionalFieldsNeedAnExplicitGuardInTheRule() {
+        // endDate absent: the rule's own "endDate == null ||" lets it pass.
+        assertThat(leave(Map.of("startDate", "2026-03-01", "days", 4))).isEmpty();
+    }
+
+    @Test
+    void anInvalidRuleExpressionIsRefusedWhenTheSchemaIsSaved() {
+        Map<String, Object> bad = schema("""
+                {"type":"object","x-rules":[{"expression":"endDate => startDate","message":"nope"}]}
+                """);
+
+        assertThatThrownBy(() -> validator.checkSchema(bad))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("x-rules").hasMessageContaining("endDate => startDate");
+    }
+
+    @Test
+    void aRuleThatCallsAMethodIsRefused() {
+        Map<String, Object> bad = schema("""
+                {"type":"object","x-rules":[{"expression":"runtime.exec('calc')","message":"nope"}]}
+                """);
+
+        assertThatThrownBy(() -> validator.checkSchema(bad)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void malformedRuleEntriesAreRefused() {
+        for (String rules : List.of(
+                "\"x-rules\": {\"expression\": \"true\", \"message\": \"m\"}",
+                "\"x-rules\": [{\"message\": \"m\"}]",
+                "\"x-rules\": [{\"expression\": \"true\"}]",
+                "\"x-rules\": [{\"expression\": \"true\", \"message\": \"\"}]",
+                "\"x-rules\": [{\"expression\": \"true\", \"message\": \"m\", \"extra\": 1}]",
+                "\"x-rules\": [{\"expression\": 5, \"message\": \"m\"}]")) {
+            Map<String, Object> bad = schema("{\"type\":\"object\"," + rules + "}");
+            assertThatThrownBy(() -> validator.checkSchema(bad)).as(rules).isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    @Test
+    void tooManyRulesAreRefused() {
+        StringBuilder rules = new StringBuilder();
+        for (int i = 0; i < 25; i++) {
+            rules.append(i == 0 ? "" : ",").append("{\"expression\":\"true\",\"message\":\"m\"}");
+        }
+        Map<String, Object> bad = schema("{\"type\":\"object\",\"x-rules\":[" + rules + "]}");
+
+        assertThatThrownBy(() -> validator.checkSchema(bad)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at most");
+    }
+
+    @Test
+    void aFieldMayBeNamedLikeTheRulesKeyword() {
+        Map<String, Object> schema = schema("""
+                {"type":"object","properties":{"x-rules":{"type":"string"}}}
+                """);
+
+        assertThat(validator.validate(validator.checkSchema(schema), Map.of("x-rules", "fine"))).isEmpty();
+    }
 }

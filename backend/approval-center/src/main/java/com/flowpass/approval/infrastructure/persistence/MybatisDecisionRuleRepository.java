@@ -8,6 +8,7 @@ import com.flowpass.approval.domain.common.TenantId;
 import com.flowpass.approval.domain.decision.DecisionRule;
 import com.flowpass.approval.domain.decision.DecisionRuleRepository;
 import com.flowpass.approval.domain.decision.RuleCondition;
+import com.flowpass.approval.domain.decision.RuleExpression;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -60,20 +61,26 @@ public class MybatisDecisionRuleRepository implements DecisionRuleRepository {
         row.setFieldMatches(rule.condition().fieldMatches().isEmpty()
                 ? null
                 : toJson(rule.condition().fieldMatches()));
-        row.setApprovers(toJson(rule.approvers().stream()
-                .map(a -> Map.of("type", a.type(), "id", a.id()))
-                .toList()));
+        row.setConditionExpr(rule.condition().expression() == null ? null : rule.condition().expression().source());
+        // Each approver is stored with its approval round; a stored entry without one is round 1.
+        List<Map<String, Object>> stored = new java.util.ArrayList<>();
+        for (int i = 0; i < rule.rounds().size(); i++) {
+            int round = i + 1;
+            rule.rounds().get(i).forEach(a -> stored.add(Map.of("type", a.type(), "id", a.id(), "round", round)));
+        }
+        row.setApprovers(toJson(stored));
         mapper.insert(row);
     }
 
     private DecisionRule toDomain(DecisionRuleRow row) {
-        return DecisionRule.hydrate(
+        return DecisionRule.hydrateRounds(
                 row.getId(),
                 new TenantId(row.getTenantId()),
                 row.getTemplateKey(),
                 row.getPriority(),
-                new RuleCondition(row.getAmountMin(), row.getAmountMax(), parseFieldMatches(row.getFieldMatches())),
-                parseApprovers(row.getApprovers()));
+                new RuleCondition(row.getAmountMin(), row.getAmountMax(), parseFieldMatches(row.getFieldMatches()),
+                        row.getConditionExpr() == null ? null : RuleExpression.parse(row.getConditionExpr())),
+                parseRounds(row.getApprovers()));
     }
 
     private Map<String, String> parseFieldMatches(String json) {
@@ -87,12 +94,16 @@ public class MybatisDecisionRuleRepository implements DecisionRuleRepository {
         }
     }
 
-    private List<ApproverRef> parseApprovers(String json) {
+    private List<List<ApproverRef>> parseRounds(String json) {
         try {
             List<Map<String, Object>> raw = objectMapper.readValue(json, APPROVERS_TYPE);
-            return raw.stream()
-                    .map(entry -> new ApproverRef(String.valueOf(entry.get("type")), String.valueOf(entry.get("id"))))
-                    .toList();
+            java.util.TreeMap<Integer, List<ApproverRef>> byRound = new java.util.TreeMap<>();
+            for (Map<String, Object> entry : raw) {
+                int round = entry.get("round") instanceof Number n ? n.intValue() : 1;
+                byRound.computeIfAbsent(round, r -> new java.util.ArrayList<>())
+                        .add(new ApproverRef(String.valueOf(entry.get("type")), String.valueOf(entry.get("id"))));
+            }
+            return List.copyOf(byRound.values());
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Cannot parse approvers JSON", e);
         }

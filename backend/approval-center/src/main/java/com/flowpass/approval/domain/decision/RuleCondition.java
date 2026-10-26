@@ -9,13 +9,21 @@ import java.util.Map;
  * <p>Two independent constraint kinds, all of which must hold for a match:
  * <ul>
  *   <li>amount band — {@code amountMin <= amount < amountMax} (each bound optional);</li>
- *   <li>field matches — every entry must equal the instance variable's string value.</li>
+ *   <li>field matches — every entry must equal the instance variable's string value;</li>
+ *   <li>an optional {@link RuleExpression} — a safe boolean condition over the variables, for anything the two
+ *       above cannot say (comparisons, "one of", AND / OR / NOT, cross-field checks).</li>
  * </ul>
  * A condition with no constraints is a default/fallback rule: it matches every input.</p>
  */
-public record RuleCondition(BigDecimal amountMin, BigDecimal amountMax, Map<String, String> fieldMatches) {
+public record RuleCondition(BigDecimal amountMin, BigDecimal amountMax, Map<String, String> fieldMatches,
+                            RuleExpression expression) {
 
     public static final String AMOUNT_VARIABLE = "amount";
+
+    /** A condition without an expression: amount band and / or field matches only. */
+    public RuleCondition(BigDecimal amountMin, BigDecimal amountMax, Map<String, String> fieldMatches) {
+        this(amountMin, amountMax, fieldMatches, null);
+    }
 
     public RuleCondition {
         fieldMatches = (fieldMatches == null) ? Map.of() : Map.copyOf(fieldMatches);
@@ -26,22 +34,23 @@ public record RuleCondition(BigDecimal amountMin, BigDecimal amountMax, Map<Stri
 
     /** A condition with no constraints — matches every variable set (default rule). */
     public static RuleCondition any() {
-        return new RuleCondition(null, null, Map.of());
+        return new RuleCondition(null, null, Map.of(), null);
     }
 
     /** A condition restricting on the {@code amount} variable only. */
     public static RuleCondition amountBand(BigDecimal min, BigDecimal max) {
-        return new RuleCondition(min, max, Map.of());
+        return new RuleCondition(min, max, Map.of(), null);
     }
 
     /** True when this condition has no constraints (a fallback rule). */
     public boolean isDefault() {
-        return amountMin == null && amountMax == null && fieldMatches.isEmpty();
+        return amountMin == null && amountMax == null && fieldMatches.isEmpty() && expression == null;
     }
 
     /** True when the given instance variables satisfy every configured constraint. */
     public boolean matches(Map<String, Object> variables) {
-        return amountWithinBand(variables) && fieldsMatch(variables);
+        return amountWithinBand(variables) && fieldsMatch(variables)
+                && (expression == null || expression.matches(variables));
     }
 
     private boolean amountWithinBand(Map<String, Object> variables) {

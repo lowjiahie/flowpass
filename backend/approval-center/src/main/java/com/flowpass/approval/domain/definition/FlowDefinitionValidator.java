@@ -65,6 +65,7 @@ public final class FlowDefinitionValidator {
     private static final Set<String> CHILDREN_OF_FLOW = Set.of("conditionExpression", "documentation");
     private static final Set<String> END_EVENT_IDS = Set.of(END_APPROVED, END_REJECTED);
     private static final Set<String> TWO_CHAR_OPERATORS = Set.of("==", "!=", "<=", ">=", "&&", "||");
+    private static final Pattern ROUND_COLLECTION = Pattern.compile("approvers[2-5]?");
     private static final Pattern LITERAL_ASSIGNEE = Pattern.compile("[A-Z][A-Z_]*:[A-Za-z0-9_.@-]{1,128}");
 
     private FlowDefinitionValidator() {
@@ -263,8 +264,8 @@ public final class FlowDefinitionValidator {
                     }
                 }
                 case "collection" -> {
-                    if (!"approvers".equals(value)) {
-                        problems.add("loop collection must be 'approvers'");
+                    if (!ROUND_COLLECTION.matcher(value).matches()) {
+                        problems.add("loop collection must be 'approvers' (round 1) or 'approvers2' .. 'approvers5'");
                     }
                 }
                 case "elementVariable" -> {

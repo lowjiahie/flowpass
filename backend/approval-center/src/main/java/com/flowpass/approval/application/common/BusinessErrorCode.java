@@ -11,6 +11,7 @@ public enum BusinessErrorCode {
     INSTANCE_NOT_FOUND("approval.instance.not_found"),
     TASK_NOT_FOUND("approval.task.not_found"),
     TEMPLATE_NOT_FOUND("approval.template.not_found"),
+    DELEGATION_NOT_FOUND("approval.delegation.not_found"),
     UNAUTHENTICATED("approval.unauthenticated"),
     FORBIDDEN("approval.forbidden"),
     VALIDATION_FAILED("approval.validation_failed"),

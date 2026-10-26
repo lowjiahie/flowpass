@@ -9,6 +9,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -36,10 +38,16 @@ public class PreviewApproversHandler {
                 query.templateKey(),
                 query.initiator(),
                 query.variables() == null ? Map.of() : query.variables());
+        List<List<ApproverDTO>> rounds = new ArrayList<>();
+        for (int i = 0; i < resolution.rounds().size(); i++) {
+            int round = i + 1;
+            rounds.add(resolution.rounds().get(i).stream()
+                    .map(candidate -> new ApproverDTO(candidate.type(), candidate.id(), round))
+                    .toList());
+        }
         return new ApproverPreviewDTO(
-                resolution.approvers().stream()
-                        .map(candidate -> new ApproverDTO(candidate.type(), candidate.id()))
-                        .toList(),
+                rounds.stream().flatMap(List::stream).toList(),
+                rounds,
                 resolution.problems());
     }
 }

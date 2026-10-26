@@ -50,4 +50,24 @@ class ApprovalMatrixTest {
     void emptyRulesYieldEmpty() {
         assertThat(ApprovalMatrix.select(List.of(), Map.of())).isEmpty();
     }
+
+    @Test
+    void expressionsDecideWhichRuleWinsInPriorityOrder() {
+        DecisionRule euUrgent = DecisionRule.define(new TenantId("t_1"), "purchase_request", 10,
+                new RuleCondition(null, null, null, RuleExpression.parse("region == 'EU' && urgent")),
+                List.of(new ApproverRef("USER", "u_eu")));
+        DecisionRule big = DecisionRule.define(new TenantId("t_1"), "purchase_request", 20,
+                new RuleCondition(null, null, null, RuleExpression.parse("amount >= 10000")),
+                List.of(new ApproverRef("USER", "u_big")));
+        DecisionRule fallback = DecisionRule.define(new TenantId("t_1"), "purchase_request", 100,
+                RuleCondition.any(), List.of(new ApproverRef("USER", "u_default")));
+        List<DecisionRule> rules = List.of(fallback, big, euUrgent);
+
+        assertThat(ApprovalMatrix.select(rules, Map.of("region", "EU", "urgent", true, "amount", 50000)).orElseThrow()
+                .approvers()).containsExactly(new ApproverRef("USER", "u_eu"));
+        assertThat(ApprovalMatrix.select(rules, Map.of("region", "EU", "urgent", false, "amount", 50000)).orElseThrow()
+                .approvers()).containsExactly(new ApproverRef("USER", "u_big"));
+        assertThat(ApprovalMatrix.select(rules, Map.of("amount", 5)).orElseThrow()
+                .approvers()).containsExactly(new ApproverRef("USER", "u_default"));
+    }
 }

@@ -16,15 +16,15 @@ public interface DecisionRuleMapper {
 
     @Insert("""
             INSERT INTO decision_rule
-                (id, tenant_id, template_key, priority, amount_min, amount_max, field_matches, approvers)
+                (id, tenant_id, template_key, priority, amount_min, amount_max, field_matches, condition_expr, approvers)
             VALUES
                 (#{id}, #{tenantId}, #{templateKey}, #{priority}, #{amountMin}, #{amountMax},
-                 #{fieldMatches}::jsonb, #{approvers}::jsonb)
+                 #{fieldMatches}::jsonb, #{conditionExpr}, #{approvers}::jsonb)
             """)
     void insert(DecisionRuleRow row);
 
     @Select("""
-            SELECT id, tenant_id, template_key, priority, amount_min, amount_max, field_matches, approvers
+            SELECT id, tenant_id, template_key, priority, amount_min, amount_max, field_matches, condition_expr, approvers
             FROM decision_rule
             WHERE tenant_id = #{tenantId} AND template_key = #{templateKey}
             ORDER BY priority ASC, id ASC
@@ -32,7 +32,7 @@ public interface DecisionRuleMapper {
     List<DecisionRuleRow> findByTemplate(@Param("tenantId") String tenantId, @Param("templateKey") String templateKey);
 
     @Select("""
-            SELECT id, tenant_id, template_key, priority, amount_min, amount_max, field_matches, approvers
+            SELECT id, tenant_id, template_key, priority, amount_min, amount_max, field_matches, condition_expr, approvers
             FROM decision_rule
             WHERE tenant_id = #{tenantId}
             ORDER BY template_key ASC, priority ASC, id ASC
